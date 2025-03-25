@@ -329,16 +329,7 @@ for phoneme_vs_phoneme_matrix,matrix_label in zip([phoneme_vs_phoneme_matrix_mea
             fig.savefig(f"figures/{matrix_label}_{key}_neuron_{neuron_id}.png")
             plt.close(fig)
 
-            phoneme_vs_all_mean = matrix.mean(axis=1)  # Average across columns
-            phoneme_vs_all_mean = phoneme_vs_all_mean.sort_values(ascending=False)
-            # plot sorted
-            fig = plt.figure(figsize=(10, 8))
-            ax = sns.barplot(x=phoneme_vs_all_mean.index,y=phoneme_vs_all_mean.values, palette='coolwarm',hue=phoneme_vs_all_mean.values,orient='v')
-            ax.set_title(f"Sorted Phonemes Discrimination – Neuron {neuron_id} ({matrix_label} {key})", fontsize=14)
-            ax.set_xlabel(f"Average {matrix_label} {key}")
-            ax.set_ylabel("Phoneme")
-            ax.set_xticklabels(ax.get_xticklabels(), rotation=90, horizontalalignment='right')
-            plt.tight_layout()
+            fig = plot_phoneme_discrimination_boxplot(matrix, neuron_id=neuron_id, matrix_label=matrix_label)
             fig.savefig(f"figures/sorted_{matrix_label}_{key}_neuron_{neuron_id}.png")
 
 
