@@ -270,12 +270,41 @@ def plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=None, value_type='Cohen\'s 
     )
 
     title = f"Phoneme Discrimination – Neuron {neuron_id}" if neuron_id is not None else "Phoneme Discrimination Matrix"
+    title+=f" ({value_type})"
     ax.set_title(title, fontsize=14)
     ax.set_xlabel("Phoneme B")
     ax.set_ylabel("Phoneme A")
     plt.tight_layout()
     return fig
 
+
+
+def plot_phoneme_discrimination_boxplot(matrix, neuron_id, matrix_label):
+    """
+    Plot boxplots of how strongly each phoneme is discriminated from others by a neuron.
+    """
+    # Melt matrix to long format
+    long_df = matrix.reset_index().melt(id_vars='index')
+    long_df.columns = ['phoneme_a', 'phoneme_b', 'value']
+
+    # Remove self-comparisons (diagonal)
+    long_df = long_df[long_df['phoneme_a'] != long_df['phoneme_b']]
+
+    # Sort phonemes by median discrimination strength (for plotting)
+    medians = long_df.groupby('phoneme_a')['value'].median().sort_values(ascending=False)
+    long_df['phoneme_a'] = pd.Categorical(long_df['phoneme_a'], categories=medians.index, ordered=True)
+
+    # Plot
+    fig = plt.figure(figsize=(12, 6))
+    ax = sns.boxplot(data=long_df, x='phoneme_a', y='value', palette='coolwarm')
+    ax.set_title(f"Phoneme Discrimination Distribution – Neuron {neuron_id} ({matrix_label})", fontsize=14)
+    ax.set_xlabel("Phoneme")
+    ax.set_ylabel(f"{matrix_label} vs others")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, horizontalalignment='right')
+
+    plt.tight_layout()
+    fig.savefig(f"figures/boxplot_{matrix_label}_{key}_neuron_{neuron_id}.png")
+    return fig
 
 phoneme_vs_phoneme_matrix = phoneme_vs_phoneme_matrix_mean
 phoneme_vs_phoneme_matrix[0].keys()
@@ -285,9 +314,33 @@ os.makedirs("figures", exist_ok=True)
 for phoneme_vs_phoneme_matrix,matrix_label in zip([phoneme_vs_phoneme_matrix_mean, phoneme_vs_phoneme_matrix_max],['mean','max']):
     for neuron_id in phoneme_vs_phoneme_matrix.keys():
         for key in ['matrix_t','matrix_p','matrix_d']:
-            fig = plot_phoneme_vs_phoneme_matrix(phoneme_vs_phoneme_matrix[neuron_id][key], neuron_id=neuron_id, value_type=key)
-            fig.savefig(f"figures/neuron_{matrix_label}_{neuron_id}_{key}.png")
+            matrix = phoneme_vs_phoneme_matrix[neuron_id][key]
+
+            # remove eng phoneme
+            matrix = matrix.drop('eng', axis=0, errors='ignore')
+            matrix = matrix.drop('eng', axis=1, errors='ignore')
+            if key == 'matrix_p':
+                matrix = matrix.map(lambda x: -np.log10(x))
+            if key in ['matrix_t','matrix_d']:
+                matrix = matrix.map(lambda x: np.abs(x))
+            
+            # apply average over the rows
+            fig = plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=neuron_id, value_type=' '.join([matrix_label,key]))
+            fig.savefig(f"figures/{matrix_label}_{key}_neuron_{neuron_id}.png")
             plt.close(fig)
+
+            phoneme_vs_all_mean = matrix.mean(axis=1)  # Average across columns
+            phoneme_vs_all_mean = phoneme_vs_all_mean.sort_values(ascending=False)
+            # plot sorted
+            fig = plt.figure(figsize=(10, 8))
+            ax = sns.barplot(x=phoneme_vs_all_mean.index,y=phoneme_vs_all_mean.values, palette='coolwarm',hue=phoneme_vs_all_mean.values,orient='v')
+            ax.set_title(f"Sorted Phonemes Discrimination – Neuron {neuron_id} ({matrix_label} {key})", fontsize=14)
+            ax.set_xlabel(f"Average {matrix_label} {key}")
+            ax.set_ylabel("Phoneme")
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=90, horizontalalignment='right')
+            plt.tight_layout()
+            fig.savefig(f"figures/sorted_{matrix_label}_{key}_neuron_{neuron_id}.png")
+
 
 plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=0, value_type='t-stat', center=0, cmap='coolwarm')
 
