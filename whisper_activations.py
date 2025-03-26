@@ -262,7 +262,7 @@ def main():
         return phoneme_vs_phoneme_matrix
 
     if not os.path.exists(f"{mlp_path}/phoneme_vs_phoneme_matrix_mean.pkl"):
-        phoneme_vs_phoneme_matrix_mean = get_phoneme_vs_phoneme_all_neurons(df, stat_key.replace('%','mean'),njobs=8)
+        phoneme_vs_phoneme_matrix_mean = get_phoneme_vs_phoneme_all_neurons(df, stat_key_pattern.replace('%','mean'),njobs=8)
         with open(f"phoneme_vs_phoneme_matrix_mean.pkl", "wb") as f:
             pickle.dump(phoneme_vs_phoneme_matrix_mean, f)
     else:
@@ -270,7 +270,7 @@ def main():
         with open(f"{mlp_path}/phoneme_vs_phoneme_matrix_mean.pkl", "rb") as f:
             phoneme_vs_phoneme_matrix_mean = pickle.load(f)
     if not os.path.exists(f"{mlp_path}/phoneme_vs_phoneme_matrix_max.pkl"):
-        phoneme_vs_phoneme_matrix_max = get_phoneme_vs_phoneme_all_neurons(df, stat_key.replace('%','max'),njobs=8)
+        phoneme_vs_phoneme_matrix_max = get_phoneme_vs_phoneme_all_neurons(df, stat_key_pattern.replace('%','max'),njobs=8)
         with open(f"{mlp_path}/phoneme_vs_phoneme_matrix_max.pkl", "wb") as f:
             pickle.dump(phoneme_vs_phoneme_matrix_max, f)
     else:
