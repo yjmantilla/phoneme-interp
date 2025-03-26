@@ -12,6 +12,7 @@ __pycache__/
 *.pth
 
 figures/
+output/
 # Distribution / packaging
 .Python
 build/

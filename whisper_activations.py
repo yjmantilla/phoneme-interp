@@ -11,6 +11,8 @@ import os
 import matplotlib.pyplot as plt 
 
 phoneme_file = "phoneme_segments.pkl"
+output_dir = "output"
+block_index = 2  # Choose block index as needed
 
 with open(phoneme_file, "rb") as f:
     df = pickle.load(f)
@@ -31,7 +33,7 @@ def pad_or_truncate(segment, target_len=WHISPER_INPUT_SAMPLES):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-block_index = 2  # Choose block index as needed
+
 
 # Load model to the same device
 model = whisper.load_model("tiny").to(device)  # small, base, large
@@ -52,9 +54,13 @@ mlp_module = model.encoder.blocks[block_index].mlp
 mlp_string = f'model.encoder.blocks[{block_index}].mlp'
 hook = mlp_module.register_forward_hook(hook_fn)
 
+mlp_path = f"{output_dir}/{mlp_string}/"
+os.makedirs(mlp_path, exist_ok=True)
+activations_path = f"{mlp_path}/activations.pt"
+tooshort_path = f"{mlp_path}/too_short.npy"
 
 too_short = []
-if not os.path.exists(mlp_string+'.pt'):
+if not os.path.exists(activations_path):
     # Process each row
     for i, row in df.iterrows():
         original_segment = np.asarray(row['segment'], dtype=np.float32)
@@ -89,14 +95,14 @@ if not os.path.exists(mlp_string+'.pt'):
 
     # save activations_list
 
-    torch.save(activations_list, mlp_string + ".pt")  # binary, efficient
-    print(f"Saved activations to {mlp_string+'.pt'}")
-    np.save(mlp_string + ".npy", np.array(too_short))
+    torch.save(activations_list, activations_path)  # binary, efficient
+    print(f"Saved activations to {activations_path}")
+    np.save(tooshort_path, np.array(too_short))
 
 else:
-    print(f"Loading activations from {mlp_string+'.pt'}")
-    activations_list = torch.load(mlp_string + ".pt")
-    too_short = np.load(mlp_string + ".npy")
+    print(f"Loading activations from {activations_path}")
+    activations_list = torch.load(activations_path)
+    too_short = np.load(tooshort_path)
 
 # get mean max min std of activations across frame dimension, as we want to get stats at the neuron level
 
@@ -227,21 +233,21 @@ def get_phoneme_vs_phoneme_all_neurons(df, stat_key,njobs=1):
             phoneme_vs_phoneme_matrix[neuron_idx] = phoneme_vs_phoneme_matrix_[neuron_idx]
     return phoneme_vs_phoneme_matrix
 
-if not os.path.exists(f"phoneme_vs_phoneme_matrix_mean.pkl"):
+if not os.path.exists(f"{mlp_path}/phoneme_vs_phoneme_matrix_mean.pkl"):
     phoneme_vs_phoneme_matrix_mean = get_phoneme_vs_phoneme_all_neurons(df, stat_key.replace('%','mean'),njobs=8)
     with open(f"phoneme_vs_phoneme_matrix_mean.pkl", "wb") as f:
         pickle.dump(phoneme_vs_phoneme_matrix_mean, f)
 else:
     print(f"Loading phoneme_vs_phoneme_matrix_mean")
-    with open(f"phoneme_vs_phoneme_matrix_mean.pkl", "rb") as f:
+    with open(f"{mlp_path}/phoneme_vs_phoneme_matrix_mean.pkl", "rb") as f:
         phoneme_vs_phoneme_matrix_mean = pickle.load(f)
-if not os.path.exists(f"phoneme_vs_phoneme_matrix_max.pkl"):
+if not os.path.exists(f"{mlp_path}/phoneme_vs_phoneme_matrix_max.pkl"):
     phoneme_vs_phoneme_matrix_max = get_phoneme_vs_phoneme_all_neurons(df, stat_key.replace('%','max'),njobs=8)
-    with open(f"phoneme_vs_phoneme_matrix_max.pkl", "wb") as f:
+    with open(f"{mlp_path}/phoneme_vs_phoneme_matrix_max.pkl", "wb") as f:
         pickle.dump(phoneme_vs_phoneme_matrix_max, f)
 else:
     print(f"Loading phoneme_vs_phoneme_matrix_max")
-    with open(f"phoneme_vs_phoneme_matrix_max.pkl", "rb") as f:
+    with open(f"{mlp_path}/phoneme_vs_phoneme_matrix_max.pkl", "rb") as f:
         phoneme_vs_phoneme_matrix_max = pickle.load(f)
 
 
@@ -279,7 +285,7 @@ def plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=None, value_type='Cohen\'s 
 
 
 
-def plot_phoneme_discrimination_boxplot(matrix, neuron_id, matrix_label):
+def plot_phoneme_discrimination_boxplot(matrix, neuron_id, matrix_label,key):
     """
     Plot boxplots of how strongly each phoneme is discriminated from others by a neuron.
     """
@@ -296,22 +302,20 @@ def plot_phoneme_discrimination_boxplot(matrix, neuron_id, matrix_label):
 
     # Plot
     fig = plt.figure(figsize=(12, 6))
-    ax = sns.boxplot(data=long_df, x='phoneme_a', y='value', palette='coolwarm')
-    ax.set_title(f"Phoneme Discrimination Distribution – Neuron {neuron_id} ({matrix_label})", fontsize=14)
+    ax = sns.boxplot(data=long_df, x='phoneme_a', y='value', palette='gist_rainbow', hue='phoneme_a',legend=False)
+    ax.set_title(f"Phoneme Discrimination Distribution – Neuron {neuron_id} ({matrix_label} {key})", fontsize=14)
     ax.set_xlabel("Phoneme")
     ax.set_ylabel(f"{matrix_label} vs others")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, horizontalalignment='right')
-
-    plt.tight_layout()
-    fig.savefig(f"figures/boxplot_{matrix_label}_{key}_neuron_{neuron_id}.png")
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, horizontalalignment='center')
     return fig
 
 phoneme_vs_phoneme_matrix = phoneme_vs_phoneme_matrix_mean
 phoneme_vs_phoneme_matrix[0].keys()
 matrix = phoneme_vs_phoneme_matrix[0]['matrix_p']
 
-os.makedirs("figures", exist_ok=True)
-for phoneme_vs_phoneme_matrix,matrix_label in zip([phoneme_vs_phoneme_matrix_mean, phoneme_vs_phoneme_matrix_max],['mean','max']):
+figpath=f'{mlp_path}/figures'
+os.makedirs(figpath, exist_ok=True)
+for phoneme_vs_phoneme_matrix,matrix_label in zip([phoneme_vs_phoneme_matrix_max, phoneme_vs_phoneme_matrix_mean],['max','mean']):
     for neuron_id in phoneme_vs_phoneme_matrix.keys():
         for key in ['matrix_t','matrix_p','matrix_d']:
             matrix = phoneme_vs_phoneme_matrix[neuron_id][key]
@@ -326,14 +330,14 @@ for phoneme_vs_phoneme_matrix,matrix_label in zip([phoneme_vs_phoneme_matrix_mea
             
             # apply average over the rows
             fig = plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=neuron_id, value_type=' '.join([matrix_label,key]))
-            fig.savefig(f"figures/{matrix_label}_{key}_neuron_{neuron_id}.png")
+            fig.savefig(f"{figpath}/{matrix_label}_{key}_neuron_{neuron_id}.png")
             plt.close(fig)
 
-            fig = plot_phoneme_discrimination_boxplot(matrix, neuron_id=neuron_id, matrix_label=matrix_label)
-            fig.savefig(f"figures/sorted_{matrix_label}_{key}_neuron_{neuron_id}.png")
+            fig = plot_phoneme_discrimination_boxplot(matrix, neuron_id=neuron_id, matrix_label=matrix_label,key=key)
+            fig.savefig(f"{figpath}/sorted_{matrix_label}_{key}_neuron_{neuron_id}.png")
+            plt.close(fig)
 
-
-plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=0, value_type='t-stat', center=0, cmap='coolwarm')
+#plot_phoneme_vs_phoneme_matrix(matrix, neuron_id=0, value_type='t-stat', center=0, cmap='coolwarm')
 
 if False:
     import matplotlib
