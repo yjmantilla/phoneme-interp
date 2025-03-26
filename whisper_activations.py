@@ -37,6 +37,8 @@ def main():
         help="Whisper encoder block index to extract MLP activations from (default: 2)"
     )
 
+    # example usage
+    # python whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
 
     phoneme_file = args.phoneme_file
