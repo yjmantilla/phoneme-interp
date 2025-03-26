@@ -1,19 +1,19 @@
-import numpy as np
-import whisper
-import torch
-import pickle
-from collections import defaultdict
-from scipy.stats import ttest_ind
-import joblib
-import seaborn as sns
-import pandas as pd
-import os
-import matplotlib.pyplot as plt 
-import argparse
-
-import argparse
-
 def main():
+    import numpy as np
+    import whisper
+    import torch
+    import pickle
+    from collections import defaultdict
+    from scipy.stats import ttest_ind
+    import joblib
+    import seaborn as sns
+    import pandas as pd
+    import os
+    import matplotlib.pyplot as plt 
+    import argparse
+
+    import argparse
+
     parser = argparse.ArgumentParser(description="Extract and analyze phoneme activations from Whisper.")
 
     parser.add_argument(
@@ -38,7 +38,7 @@ def main():
     )
 
     # example usage
-    # python whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
+    # python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
 
     phoneme_file = args.phoneme_file
@@ -109,7 +109,7 @@ def main():
                 n_samples = len(original_segment)
                 n_frames = n_samples // SAMPLES_PER_FRAME
                 if n_frames == 0:
-                    print(f"Too short: {len(original_segment)} samples → 0 frames. Going to at least 1 frames.")
+                    print(f"Too short: {len(original_segment)} samples -> 0 frames. Going to at least 1 frames.")
                     n_frames = 1
                     too_short.append(True)
                 else:
@@ -151,7 +151,7 @@ def main():
         
 
     # Choose the stat you want to analyze (mean, max, etc.)
-    stat_key_pattern = 'activations_model.encoder.blocks[2].mlp_%'
+    stat_key_pattern = f'activations_model.encoder.blocks[{block_index}].mlp_%'
 
     def get_neuron_vs_phoneme_matrix(df,stat_key):
         df = df.copy()
