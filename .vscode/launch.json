@@ -1,0 +1,16 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "whisper activations",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "whisper_activations.py",
+            "console": "integratedTerminal",
+            "args": ["--phoneme_file", "phoneme_segments.pkl", "--output_dir", "output", "--block_index", "2"]
+        }
+    ]
+}
