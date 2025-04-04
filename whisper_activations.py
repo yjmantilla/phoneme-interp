@@ -280,6 +280,7 @@ def main():
         print(f"Computing {key} of activations")
         df[f'activations_{mlp_string}_{key}'] = [func(activations) for activations in all_activations]
 
+    df.to_pickle(f"{mlp_path}/phoneme_activations.pkl")
     # Choose the stat you want to analyze (mean, max, etc.)
     stat_key_pattern = f'activations_model.encoder.blocks[{block_index}].mlp_%'
 
