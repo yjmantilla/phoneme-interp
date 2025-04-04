@@ -27,9 +27,6 @@ except ImportError:
     griffin_lim = None
 
 def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1):
-    """
-    Plays a float32 NumPy array (values in [-1, 1]) as audio.
-    """
     int_data = (float_array * 32768.0).astype('<i2')
     pcm_bytes = int_data.tobytes()
     buffer = BytesIO()
@@ -149,23 +146,20 @@ def main():
         total_frames = mel_example.shape[-1]
         n_mels = mel_example.shape[-2]
 
-        opt_frames = int(total_frames * (args.optimize_seconds / 30.0))
-        silent_frames = total_frames - opt_frames
+        print(f"[INFO] Optimizing full {total_frames} frames ({args.optimize_seconds}s)")
 
-        print(f"[INFO] Optimizing first {opt_frames} frames ({args.optimize_seconds}s), "
-              f"keeping {silent_frames} frames silent")
-
-        mel_opt_noise = torch.randn(1, n_mels, opt_frames, device=device) * 0.5
+        mel_opt_noise = torch.randn(1, n_mels, total_frames, device=device) * 0.01
         mel_opt_noise.requires_grad_()
 
-        mel_opt_silence = torch.zeros(1, n_mels, silent_frames, device=device)
         optimizer = torch.optim.Adam([mel_opt_noise], lr=args.lr)
 
         for step in range(args.steps):
             optimizer.zero_grad()
 
-            processed_noise = F.relu(mel_opt_noise)  # allow sparse + high activations
-            mel_input = torch.cat([processed_noise, mel_opt_silence], dim=2)
+            mel_input = mel_opt_noise  # no ReLU or softplus to preserve gradient flow
+
+            # 🔍 Sanity check for gradient flow
+            print(f"[DEBUG] requires_grad: {mel_input.requires_grad}, grad_fn: {mel_input.grad_fn is not None}")
 
             _ = model.encoder(mel_input)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
@@ -177,18 +171,14 @@ def main():
             elif args.loss_type == "quantile":
                 loss = torch.quantile(neuron_act, args.quantile)
 
-            loss -= args.l2_decay * (processed_noise ** 2).mean()
+            loss -= args.l2_decay * (mel_input ** 2).mean()
             (-loss).backward()
             optimizer.step()
 
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        with torch.no_grad():
-            processed_noise = F.relu(mel_opt_noise)
-            mel_final = torch.cat([processed_noise, mel_opt_silence], dim=2)
-            mel_final = mel_final.detach().cpu().squeeze().numpy()
-
+        mel_final = mel_opt_noise.detach().cpu().squeeze().numpy()
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
