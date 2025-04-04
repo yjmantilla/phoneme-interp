@@ -14,7 +14,7 @@ def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1)
     Plays a float32 NumPy array (values in [-1, 1]) as audio.
     """
     # Step 1: Convert float32 [-1, 1] → int16
-    int_data = (float_array * 32768.0).astype('<i2')  # Little-endian int16
+    int_data = (float_array * 32768.0).astype('<i2')
 
     # Step 2: Convert to raw bytes
     pcm_bytes = int_data.tobytes()
@@ -26,14 +26,12 @@ def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1)
         wf.setsampwidth(sample_width)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm_bytes)
-
     buffer.seek(0)
 
     # Step 4: Play
     pygame.mixer.init(frequency=sample_rate)
     sound = pygame.mixer.Sound(file=buffer)
     sound.play()
-
     while pygame.mixer.get_busy():
         time.sleep(0.01)
 
@@ -51,6 +49,8 @@ def parse_args():
     parser.add_argument("--l2_decay", type=float, default=1e-4, help="L2 regularization strength")
     parser.add_argument("--blur_sigma", type=float, default=1.0, help="Gaussian blur sigma for regularization (0 = off)")
     parser.add_argument("--optimize_seconds", type=float, default=1.0, help="Number of seconds to optimize at the start of the waveform")
+    parser.add_argument("--loss_type", type=str, default="mean", choices=["mean", "max", "quantile"], help="Loss type for activation (mean, max, quantile)")
+    parser.add_argument("--quantile", type=float, default=0.95, help="Quantile to use if loss_type=quantile (e.g., 0.9)")
     parser.add_argument("--output", type=str, default="optimized_waveform.npy", help="Output .npy file for generated waveform")
 
     return parser.parse_args()
@@ -98,12 +98,20 @@ def main():
         # Concatenate optimized segment + silence
         x_full = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
 
+        # Forward pass
         mel = whisper.log_mel_spectrogram(x_full).to(device)
         _ = model.encoder(mel)
+        neuron_act = activations["mlp"][0, :, args.neuron_index]
 
-        act = activations["mlp"]  # (1, frames, dim)
-        neuron_act = act[0, :, args.neuron_index]
-        loss = neuron_act.mean()
+        # Choose loss based on type
+        if args.loss_type == "mean":
+            loss = neuron_act.mean()
+        elif args.loss_type == "max":
+            loss = neuron_act.max()
+        elif args.loss_type == "quantile":
+            loss = torch.quantile(neuron_act, args.quantile)
+        else:
+            raise ValueError("Invalid loss_type")
 
         # L2 regularization
         loss -= args.l2_decay * (x_opt ** 2).mean()
@@ -115,7 +123,7 @@ def main():
             x_opt.data = blur(x_opt.data, args.blur_sigma)
 
         if step % 20 == 0:
-            print(f"Step {step:3d} | Activation = {loss.item():.4f}")
+            print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
     # Reconstruct the full waveform: optimized segment + silence
     result = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
@@ -133,17 +141,18 @@ def main():
     plt.show()
 
     # Play the audio
-    play_float_audio(result, sample_rate=16000)
+    play_float_audio(result, sample_rate=sample_rate)
 
     # Save as WAV (in memory)
-    pygame.mixer.init(frequency=16000, size=-16, channels=1)
+    pygame.mixer.init(frequency=sample_rate, size=-16, channels=1)
     byte_io = BytesIO()
     wav_file = wave.open(byte_io, 'wb')
     wav_file.setnchannels(1)
     wav_file.setsampwidth(2)  # 16-bit audio
-    wav_file.setframerate(16000)
+    wav_file.setframerate(sample_rate)
     wav_file.writeframes((result * 32767).astype(np.int16).tobytes())
     wav_file.close()
+
 
 if __name__ == "__main__":
     main()
