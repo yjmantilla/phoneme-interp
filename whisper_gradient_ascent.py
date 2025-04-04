@@ -37,7 +37,6 @@ def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1)
     while pygame.mixer.get_busy():
         time.sleep(0.01)
 
-
 # -------------------------
 # Argument parser
 # -------------------------
@@ -51,6 +50,7 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=0.1, help="Learning rate")
     parser.add_argument("--l2_decay", type=float, default=1e-4, help="L2 regularization strength")
     parser.add_argument("--blur_sigma", type=float, default=1.0, help="Gaussian blur sigma for regularization (0 = off)")
+    parser.add_argument("--optimize_seconds", type=float, default=1.0, help="Number of seconds to optimize at the start of the waveform")
     parser.add_argument("--output", type=str, default="optimized_waveform.npy", help="Output .npy file for generated waveform")
 
     return parser.parse_args()
@@ -81,16 +81,24 @@ def main():
     mlp_module = model.encoder.blocks[args.block_index].mlp
     mlp_module.register_forward_hook(hook_fn)
 
-    # Start from random noise waveform
-    target_len = 480000  # 30s * 16kHz
-    x = torch.randn(1, target_len, requires_grad=True, device=device)
+    # Determine optimized segment length
+    sample_rate = 16000
+    total_samples = 30 * sample_rate  # Whisper expects 30s (480000 samples)
+    opt_len = int(args.optimize_seconds * sample_rate)
+    pad_len = total_samples - opt_len
 
-    optimizer = torch.optim.Adam([x], lr=args.lr)
+    # Start from random noise waveform for the optimized region
+    x_opt = torch.randn(1, opt_len, requires_grad=True, device=device)
+
+    optimizer = torch.optim.Adam([x_opt], lr=args.lr)
 
     for step in range(args.steps):
         optimizer.zero_grad()
 
-        mel = whisper.log_mel_spectrogram(x).to(device)
+        # Concatenate optimized segment + silence
+        x_full = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
+
+        mel = whisper.log_mel_spectrogram(x_full).to(device)
         _ = model.encoder(mel)
 
         act = activations["mlp"]  # (1, frames, dim)
@@ -98,18 +106,21 @@ def main():
         loss = neuron_act.mean()
 
         # L2 regularization
-        loss -= args.l2_decay * (x ** 2).mean()
+        loss -= args.l2_decay * (x_opt ** 2).mean()
 
         (-loss).backward()
         optimizer.step()
 
         if args.blur_sigma > 0:
-            x.data = blur(x.data, args.blur_sigma)
+            x_opt.data = blur(x_opt.data, args.blur_sigma)
 
         if step % 20 == 0:
             print(f"Step {step:3d} | Activation = {loss.item():.4f}")
 
-    result = x.detach().cpu().squeeze().numpy()
+    # Reconstruct the full waveform: optimized segment + silence
+    result = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
+    result = result.detach().cpu().squeeze().numpy()
+
     np.save(args.output, result)
     print(f"[INFO] Saved optimized waveform to {args.output}")
 
@@ -121,10 +132,10 @@ def main():
     plt.tight_layout()
     plt.show()
 
-    # play the audio
-
+    # Play the audio
     play_float_audio(result, sample_rate=16000)
 
+    # Save as WAV (in memory)
     pygame.mixer.init(frequency=16000, size=-16, channels=1)
     byte_io = BytesIO()
     wav_file = wave.open(byte_io, 'wb')
@@ -133,8 +144,6 @@ def main():
     wav_file.setframerate(16000)
     wav_file.writeframes((result * 32767).astype(np.int16).tobytes())
     wav_file.close()
-    
-
 
 if __name__ == "__main__":
     main()
