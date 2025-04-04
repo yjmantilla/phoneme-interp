@@ -140,6 +140,7 @@ def main():
     elif args.optimize_space == "spectrogram":
         # Whisper spectrograms are (1, 80, n_frames)
         n_frames = int(args.optimize_seconds * 50)  # 50 frames per second
+
         mel_opt = torch.randn(1, 80, n_frames, device=device) * 0.01
         mel_opt.requires_grad_()
 
@@ -165,7 +166,8 @@ def main():
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        mel_final = mel_opt.detach().cpu().squeeze().numpy()
+        mel_final = mel_opt.detach().cpu().squeeze().numpy().T  # shape (80, n_frames)
+
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
