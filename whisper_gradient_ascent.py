@@ -146,6 +146,7 @@ def main():
         print(f"[INFO] Expected mel shape: {expected_shape}")
         
         # Create the mel spectrogram tensor with the correct shape
+        # Whisper expects (batch_size, n_mels, time)
         mel_opt = torch.randn(1, n_mels, seq_len, device=device) * 0.01
         mel_opt.requires_grad_()
         optimizer = torch.optim.Adam([mel_opt], lr=args.lr)
@@ -153,10 +154,8 @@ def main():
         for step in range(args.steps):
             optimizer.zero_grad()
             
-            # Transpose to expected shape for Whisper encoder (batch, time, channels)
-            mel_input = mel_opt.transpose(1, 2)  # shape (1, seq_len, n_mels)
-            
-            _ = model.encoder(mel_input)
+            # No need to transpose - Whisper expects (batch, n_mels, time)
+            _ = model.encoder(mel_opt)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
             if args.loss_type == "mean":
@@ -173,7 +172,7 @@ def main():
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        mel_final = mel_opt.transpose(1, 2).detach().cpu().squeeze().numpy()  # shape (seq_len, n_mels)
+        mel_final = mel_opt.detach().cpu().squeeze().numpy()  # shape (n_mels, seq_len)
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
@@ -183,7 +182,6 @@ def main():
         plt.colorbar(label="Amplitude")
         plt.tight_layout()
         plt.show()
-
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
             mel_tensor = torch.tensor(mel_final).unsqueeze(0)  # Add batch dimension
