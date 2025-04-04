@@ -138,17 +138,24 @@ def main():
         print("[INFO] Saved waveform to output.wav")
 
     elif args.optimize_space == "spectrogram":
-        # Whisper spectrograms are (1, 80, n_frames)
-        n_frames = int(args.optimize_seconds * 50)  # 50 frames per second
+        # Whisper spectrograms are (1, 80, 1500) for 30 seconds of audio
+        full_frames = 1500
+        opt_frames = int(args.optimize_seconds * 50)  # 50 frames per second
+        pad_frames = full_frames - opt_frames
 
-        mel_opt = torch.randn(1, 80, n_frames, device=device) * 0.01
-        mel_opt.requires_grad_()
+        # Optimize only the first N frames
+        mel_opt_part = torch.randn(1, 80, opt_frames, device=device) * 0.01
+        mel_opt_part.requires_grad_()
 
-        optimizer = torch.optim.Adam([mel_opt], lr=args.lr)
+        optimizer = torch.optim.Adam([mel_opt_part], lr=args.lr)
 
         for step in range(args.steps):
             optimizer.zero_grad()
-            _ = model.encoder(mel_opt)
+
+            # Concatenate optimized + padding (non-trainable)
+            mel_full = torch.cat([mel_opt_part, torch.zeros(1, 80, pad_frames, device=device)], dim=2)
+
+            _ = model.encoder(mel_full)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
             # Choose loss
@@ -159,20 +166,20 @@ def main():
             elif args.loss_type == "quantile":
                 loss = torch.quantile(neuron_act, args.quantile)
 
-            loss -= args.l2_decay * (mel_opt ** 2).mean()
+            loss -= args.l2_decay * (mel_opt_part ** 2).mean()
             (-loss).backward()
             optimizer.step()
 
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        mel_final = mel_opt.detach().cpu().squeeze().numpy().T  # shape (80, n_frames)
+        mel_final = mel_full.detach().cpu().squeeze().numpy().T  # shape (1500, 80)
 
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
         plt.figure(figsize=(10, 4))
-        plt.imshow(mel_final, aspect='auto', origin='lower')
+        plt.imshow(mel_final.T, aspect='auto', origin='lower')
         plt.title(f"Mel Spectrogram – Neuron {args.neuron_index}")
         plt.colorbar(label="Amplitude")
         plt.tight_layout()
@@ -181,7 +188,7 @@ def main():
         # Try to invert to waveform if torchaudio is available
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
-            mel_tensor = torch.tensor(mel_final).unsqueeze(0)
+            mel_tensor = torch.tensor(mel_final.T).unsqueeze(0)
             inv_waveform = griffin_lim(mel_tensor).squeeze().numpy()
             play_float_audio(inv_waveform)
             with wave.open("output_from_mel.wav", "wb") as wf:
