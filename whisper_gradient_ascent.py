@@ -15,21 +15,16 @@ try:
     import torchaudio
     griffin_lim = torchaudio.transforms.GriffinLim(n_fft=400)
 
-    # --- Resize mel spectrogram from 80 mel bins to 201 freq bins ---
-    # mel_tensor: shape (1, 80, T)
     def resample_mel_for_griffinlim(mel_tensor, target_bins=201):
         """
         Resize (1, 80, T) → (1, 201, T) using bilinear interpolation for Griffin-Lim.
         """
-        # mel_tensor: shape (1, 80, T)
         mel_tensor = mel_tensor.unsqueeze(1)  # → (1, 1, 80, T)
         resized = F.interpolate(mel_tensor, size=(target_bins, mel_tensor.shape[-1]), mode="bilinear", align_corners=False)
         return resized.squeeze(1)  # → (1, 201, T)
 
 except ImportError:
     griffin_lim = None
-
-
 
 def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1):
     """
@@ -85,10 +80,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device} | Optimization space: {args.optimize_space}")
 
-    # Load Whisper model
     model = whisper.load_model(args.model_size).to(device).eval()
 
-    # Register hook
     activations = {}
     def hook_fn(module, input, output):
         activations["mlp"] = output.detach()
@@ -102,7 +95,6 @@ def main():
     pad_len = total_samples - opt_len
 
     if args.optimize_space == "waveform":
-        # Optimize directly in waveform space
         x_opt = torch.randn(1, opt_len, device=device) * 0.01
         x_opt.requires_grad_()
         optimizer = torch.optim.Adam([x_opt], lr=args.lr)
@@ -151,38 +143,28 @@ def main():
             wf.writeframes((result * 32767).astype(np.int16).tobytes())
         print("[INFO] Saved waveform to output.wav")
 
-
     elif args.optimize_space == "spectrogram":
-        # Get dimensions from Whisper's actual processing
-        dummy_audio = torch.randn(1, 16000 * 30)  # 30 seconds of noise
+        dummy_audio = torch.randn(1, 16000 * 30)
         mel_example = whisper.log_mel_spectrogram(dummy_audio.to(device))
-        total_frames = mel_example.shape[-1]  # Typically 3000 for 30s audio
-        n_mels = mel_example.shape[-2]  # Should be 80
-        
-        # Calculate frames to optimize based on optimize_seconds
+        total_frames = mel_example.shape[-1]
+        n_mels = mel_example.shape[-2]
+
         opt_frames = int(total_frames * (args.optimize_seconds / 30.0))
         silent_frames = total_frames - opt_frames
-        
+
         print(f"[INFO] Optimizing first {opt_frames} frames ({args.optimize_seconds}s), "
               f"keeping {silent_frames} frames silent")
-        
-        # Initialize the mel spectrogram with random noise (for the part we want to optimize)
-        # Start with low values since we'll apply softplus
-        mel_opt_noise = torch.randn(1, n_mels, opt_frames, device=device) * 0.1 - 5.0
-        mel_opt_noise.requires_grad_(True)  # Set requires_grad=True
-        
-        # Static silent part (no gradient needed)
+
+        mel_opt_noise = torch.randn(1, n_mels, opt_frames, device=device) * 0.5
+        mel_opt_noise.requires_grad_()
+
         mel_opt_silence = torch.zeros(1, n_mels, silent_frames, device=device)
-        
-        # Only optimize the noise portion
         optimizer = torch.optim.Adam([mel_opt_noise], lr=args.lr)
 
         for step in range(args.steps):
             optimizer.zero_grad()
-            
-            # Apply softplus to ensure values are positive-only (log-mel is typically positive)
-            # Then concatenate with the silent portion
-            processed_noise = torch.nn.functional.softplus(mel_opt_noise)
+
+            processed_noise = F.relu(mel_opt_noise)  # allow sparse + high activations
             mel_input = torch.cat([processed_noise, mel_opt_silence], dim=2)
 
             _ = model.encoder(mel_input)
@@ -195,19 +177,15 @@ def main():
             elif args.loss_type == "quantile":
                 loss = torch.quantile(neuron_act, args.quantile)
 
-            # L2 regularization only on the optimized part
             loss -= args.l2_decay * (processed_noise ** 2).mean()
-            
-            # Backward pass
             (-loss).backward()
             optimizer.step()
 
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        # Process final result for saving and visualization
         with torch.no_grad():
-            processed_noise = torch.nn.functional.softplus(mel_opt_noise)
+            processed_noise = F.relu(mel_opt_noise)
             mel_final = torch.cat([processed_noise, mel_opt_silence], dim=2)
             mel_final = mel_final.detach().cpu().squeeze().numpy()
 
@@ -219,17 +197,17 @@ def main():
         plt.title(f"Mel Spectrogram - Neuron {args.neuron_index}")
         plt.colorbar(label="Log-Mel Value")
         plt.tight_layout()
-        plt.show()
+        plt.savefig("mel_spectrogram.png")
+        plt.close()
 
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
 
-            mel_tensor = torch.tensor(mel_final).unsqueeze(0)  # shape: (1, 80, T)
+            mel_tensor = torch.tensor(mel_final).unsqueeze(0)
             mel_tensor_interp = resample_mel_for_griffinlim(mel_tensor, target_bins=201)
 
             inv_waveform = griffin_lim(mel_tensor_interp).squeeze().numpy()
 
-            #play_float_audio(inv_waveform)
             with wave.open("output_from_mel.wav", "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
