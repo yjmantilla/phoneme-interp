@@ -10,6 +10,7 @@ __pycache__/
 *.npy
 *.pt
 *.pth
+*.wav
 
 figures/
 output/

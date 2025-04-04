@@ -8,13 +8,28 @@ import pygame.mixer
 import wave
 from io import BytesIO
 import time
+import torch.nn.functional as F
 
 # Optional Griffin-Lim (for spectrogram inversion)
 try:
     import torchaudio
     griffin_lim = torchaudio.transforms.GriffinLim(n_fft=400)
+
+    # --- Resize mel spectrogram from 80 mel bins to 201 freq bins ---
+    # mel_tensor: shape (1, 80, T)
+    def resample_mel_for_griffinlim(mel_tensor, target_bins=201):
+        """
+        Resize (1, 80, T) → (1, 201, T) using bilinear interpolation for Griffin-Lim.
+        """
+        # mel_tensor: shape (1, 80, T)
+        mel_tensor = mel_tensor.unsqueeze(1)  # → (1, 1, 80, T)
+        resized = F.interpolate(mel_tensor, size=(target_bins, mel_tensor.shape[-1]), mode="bilinear", align_corners=False)
+        return resized.squeeze(1)  # → (1, 201, T)
+
 except ImportError:
     griffin_lim = None
+
+
 
 def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1):
     """
@@ -208,16 +223,20 @@ def main():
 
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
-            # For Griffin-Lim, we need to transpose back to (channels, time)
-            mel_tensor = torch.tensor(mel_final.T).unsqueeze(0)  
-            inv_waveform = griffin_lim(mel_tensor).squeeze().numpy()
-            play_float_audio(inv_waveform)
+
+            mel_tensor = torch.tensor(mel_final).unsqueeze(0)  # shape: (1, 80, T)
+            mel_tensor_interp = resample_mel_for_griffinlim(mel_tensor, target_bins=201)
+
+            inv_waveform = griffin_lim(mel_tensor_interp).squeeze().numpy()
+
+            #play_float_audio(inv_waveform)
             with wave.open("output_from_mel.wav", "wb") as wf:
                 wf.setnchannels(1)
                 wf.setsampwidth(2)
                 wf.setframerate(sample_rate)
                 wf.writeframes((inv_waveform * 32767).astype(np.int16).tobytes())
             print("[INFO] Saved inverted waveform to output_from_mel.wav")
+
         else:
             print("[WARN] torchaudio not found. Skipping waveform inversion.")
 
