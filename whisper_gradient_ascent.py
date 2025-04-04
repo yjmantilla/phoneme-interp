@@ -136,27 +136,42 @@ def main():
             wf.writeframes((result * 32767).astype(np.int16).tobytes())
         print("[INFO] Saved waveform to output.wav")
 
+
     elif args.optimize_space == "spectrogram":
-        # Optimize directly in mel-spectrogram space
-        # Get the expected shape from the model
-        expected_shape = model.encoder.positional_embedding.shape
-        n_mels = 80  # Whisper uses 80 mel filters
-        seq_len = expected_shape[0]  # This is typically 1500 for Whisper
+        # Get model's expected dimensions
+        n_mels = 80  # Fixed for Whisper
+        target_length = model.encoder.positional_embedding.shape[0]  # Typically 1500
         
-        print(f"[INFO] Expected mel shape: {expected_shape}")
+        print(f"[INFO] Optimizing mel spectrogram with shape: [1, {n_mels}, {target_length}]")
         
-        # Create the mel spectrogram tensor with the correct shape
-        # Whisper expects (batch_size, n_mels, time)
-        mel_opt = torch.randn(1, n_mels, seq_len, device=device) * 0.01
+        # Initialize with proper log mel range (-20 to 0 is typical for Whisper)
+        mel_opt = torch.randn(1, n_mels, target_length, device=device) * 2 - 10
         mel_opt.requires_grad_()
         optimizer = torch.optim.Adam([mel_opt], lr=args.lr)
 
         for step in range(args.steps):
             optimizer.zero_grad()
             
-            # No need to transpose - Whisper expects (batch, n_mels, time)
-            _ = model.encoder(mel_opt)
-            neuron_act = activations["mlp"][0, :, args.neuron_index]
+            # Whisper processes the mel spectrogram through:
+            # 1. Conv1d projection
+            # 2. GELU activation
+            # 3. Layer normalization
+            # So we need to ensure our input is in the right range
+            
+            # Apply softplus to ensure positive values before log
+            mel_input = torch.nn.functional.softplus(mel_opt)
+            
+            # Verify shape before passing to encoder
+            assert mel_input.shape == (1, n_mels, target_length), \
+                f"Bad mel shape: {mel_input.shape} != (1, {n_mels}, {target_length})"
+            
+            try:
+                _ = model.encoder(mel_input)
+                neuron_act = activations["mlp"][0, :, args.neuron_index]
+            except Exception as e:
+                print(f"Error at step {step}: {str(e)}")
+                print(f"Mel stats - min: {mel_input.min().item():.2f}, max: {mel_input.max().item():.2f}, mean: {mel_input.mean().item():.2f}")
+                raise
 
             if args.loss_type == "mean":
                 loss = neuron_act.mean()
@@ -165,23 +180,27 @@ def main():
             elif args.loss_type == "quantile":
                 loss = torch.quantile(neuron_act, args.quantile)
 
+            # Add regularization
             loss -= args.l2_decay * (mel_opt ** 2).mean()
+            
             (-loss).backward()
             optimizer.step()
 
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        mel_final = mel_opt.detach().cpu().squeeze().numpy()  # shape (n_mels, seq_len)
+        # Save and visualize results
+        mel_final = mel_opt.detach().cpu().squeeze().numpy()
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
         plt.figure(figsize=(10, 4))
         plt.imshow(mel_final, aspect='auto', origin='lower')
-        plt.title(f"Mel Spectrogram – Neuron {args.neuron_index}")
-        plt.colorbar(label="Amplitude")
+        plt.title(f"Mel Spectrogram - Neuron {args.neuron_index}")
+        plt.colorbar(label="Log-Mel Value")
         plt.tight_layout()
         plt.show()
+
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
             mel_tensor = torch.tensor(mel_final).unsqueeze(0)  # Add batch dimension
