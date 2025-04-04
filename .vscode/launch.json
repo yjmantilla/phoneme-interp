@@ -11,6 +11,16 @@
             "program": "whisper_activations.py",
             "console": "integratedTerminal",
             "args": ["--phoneme_file", "phoneme_segments.pkl", "--output_dir", "output", "--block_index", "2"]
+        },
+        {
+            "name": "whisper ascent",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "whisper_gradient_ascent.py",
+            "console": "integratedTerminal",
+            "args": ["--neuron_index", "1", "--optimize_space", "spectrogram"],
+            "justMyCode": false,
         }
+
     ]
 }
