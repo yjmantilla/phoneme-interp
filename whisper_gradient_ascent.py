@@ -138,56 +138,55 @@ def main():
 
 
     elif args.optimize_space == "spectrogram":
-        # Get model's expected dimensions
-        n_mels = 80  # Fixed for Whisper
-        target_length = model.encoder.positional_embedding.shape[0]  # Typically 1500
+
+        # python whisper_gradient_ascent.py --neuron_index 1 --optimize_space spectrogram 
+        # Get dimensions from Whisper's actual processing
+        dummy_audio = torch.randn(1, 16000 * 30)  # 30 seconds of noise
+        mel_example = whisper.log_mel_spectrogram(dummy_audio.to(device))
+        total_frames = mel_example.shape[-1]  # Typically 3000 for 30s audio
+        n_mels = 80
         
-        print(f"[INFO] Optimizing mel spectrogram with shape: [1, {n_mels}, {target_length}]")
+        # Calculate frames to optimize based on optimize_seconds
+        opt_frames = int(total_frames * (args.optimize_seconds / 30.0))
+        silent_frames = total_frames - opt_frames
         
-        # Initialize with proper log mel range (-20 to 0 is typical for Whisper)
-        mel_opt = torch.randn(1, n_mels, target_length, device=device) * 2 - 10
+        print(f"[INFO] Optimizing first {opt_frames} frames ({args.optimize_seconds}s), "
+            f"keeping {silent_frames} frames silent")
+        
+        # Initialize only the first portion with noise, rest zeros
+        mel_opt_noise = torch.randn(1, n_mels, opt_frames, device=device) * 2 - 10
+        mel_opt_silence = torch.zeros(1, n_mels, silent_frames, device=device)
+        mel_opt = torch.cat([mel_opt_noise, mel_opt_silence], dim=-1)
         mel_opt.requires_grad_()
-        optimizer = torch.optim.Adam([mel_opt], lr=args.lr)
+        
+        # Only optimize the noise portion
+        optimizer = torch.optim.Adam([mel_opt_noise], lr=args.lr)
 
-        for step in range(args.steps):
-            optimizer.zero_grad()
-            
-            # Whisper processes the mel spectrogram through:
-            # 1. Conv1d projection
-            # 2. GELU activation
-            # 3. Layer normalization
-            # So we need to ensure our input is in the right range
-            
-            # Apply softplus to ensure positive values before log
-            mel_input = torch.nn.functional.softplus(mel_opt)
-            
-            # Verify shape before passing to encoder
-            assert mel_input.shape == (1, n_mels, target_length), \
-                f"Bad mel shape: {mel_input.shape} != (1, {n_mels}, {target_length})"
-            
-            try:
-                _ = model.encoder(mel_input)
-                neuron_act = activations["mlp"][0, :, args.neuron_index]
-            except Exception as e:
-                print(f"Error at step {step}: {str(e)}")
-                print(f"Mel stats - min: {mel_input.min().item():.2f}, max: {mel_input.max().item():.2f}, mean: {mel_input.mean().item():.2f}")
-                raise
+    for step in range(args.steps):
+        optimizer.zero_grad()
 
-            if args.loss_type == "mean":
-                loss = neuron_act.mean()
-            elif args.loss_type == "max":
-                loss = neuron_act.max()
-            elif args.loss_type == "quantile":
-                loss = torch.quantile(neuron_act, args.quantile)
+        # Apply softplus and concatenate
+        mel_input = torch.cat([
+            torch.nn.functional.softplus(mel_opt_noise),
+            mel_opt_silence
+        ], dim=-1)
 
-            # Add regularization
-            loss -= args.l2_decay * (mel_opt ** 2).mean()
-            
-            (-loss).backward()
-            optimizer.step()
+        _ = model.encoder(mel_input)
+        neuron_act = activations["mlp"][0, :, args.neuron_index]
 
-            if step % 20 == 0:
-                print(f"Step {step:4d} | Activation = {loss.item():.4f}")
+        if args.loss_type == "mean":
+            loss = neuron_act.mean()
+        elif args.loss_type == "max":
+            loss = neuron_act.max()
+        elif args.loss_type == "quantile":
+            loss = torch.quantile(neuron_act, args.quantile)
+
+        loss -= args.l2_decay * (mel_input ** 2).mean()
+        (-loss).backward()
+        optimizer.step()
+
+        if step % 20 == 0:
+            print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
         # Save and visualize results
         mel_final = mel_opt.detach().cpu().squeeze().numpy()
@@ -214,6 +213,5 @@ def main():
             print("[INFO] Saved inverted waveform to output_from_mel.wav")
         else:
             print("[WARN] torchaudio not found. Skipping waveform inversion.")
-
 if __name__ == "__main__":
     main()
