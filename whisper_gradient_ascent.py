@@ -16,7 +16,6 @@ try:
 except ImportError:
     griffin_lim = None
 
-
 def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1):
     """
     Plays a float32 NumPy array (values in [-1, 1]) as audio.
@@ -41,7 +40,7 @@ def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1)
 # -------------------------
 def parse_args():
     parser = argparse.ArgumentParser(description="Gradient ascent on Whisper to maximize neuron activation.")
-    
+
     parser.add_argument("--model_size", type=str, default="tiny", help="Whisper model size (tiny, base, small, etc.)")
     parser.add_argument("--block_index", type=int, default=2, help="Encoder block index to target")
     parser.add_argument("--neuron_index", type=int, default=1, help="Neuron index within the MLP layer")
@@ -88,6 +87,7 @@ def main():
     pad_len = total_samples - opt_len
 
     if args.optimize_space == "waveform":
+        # Optimize directly in waveform space
         x_opt = torch.randn(1, opt_len, device=device) * 0.01
         x_opt.requires_grad_()
         optimizer = torch.optim.Adam([x_opt], lr=args.lr)
@@ -99,7 +99,6 @@ def main():
             _ = model.encoder(mel)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
-            # Choose loss
             if args.loss_type == "mean":
                 loss = neuron_act.mean()
             elif args.loss_type == "max":
@@ -138,27 +137,25 @@ def main():
         print("[INFO] Saved waveform to output.wav")
 
     elif args.optimize_space == "spectrogram":
-        # Whisper spectrograms are (1, 80, 1500) for 30 seconds of audio
+        # Optimize directly in mel-spectrogram space
         full_frames = 1500
-        opt_frames = int(args.optimize_seconds * 50)  # 50 frames per second
+        opt_frames = int(args.optimize_seconds * 50)
         pad_frames = full_frames - opt_frames
 
-        # Optimize only the first N frames
         mel_opt_part = torch.randn(1, 80, opt_frames, device=device) * 0.01
         mel_opt_part.requires_grad_()
-
         optimizer = torch.optim.Adam([mel_opt_part], lr=args.lr)
 
         for step in range(args.steps):
             optimizer.zero_grad()
 
-            # Concatenate optimized + padding (non-trainable)
+            # Pad to full size: shape will be (1, 80, 1500), then transpose to (1, 1500, 80)
             mel_full = torch.cat([mel_opt_part, torch.zeros(1, 80, pad_frames, device=device)], dim=2)
+            mel_input = mel_full.transpose(1, 2)  # shape (1, 1500, 80)
 
-            _ = model.encoder(mel_full)
+            _ = model.encoder(mel_input)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
-            # Choose loss
             if args.loss_type == "mean":
                 loss = neuron_act.mean()
             elif args.loss_type == "max":
@@ -173,8 +170,7 @@ def main():
             if step % 20 == 0:
                 print(f"Step {step:4d} | Activation = {loss.item():.4f}")
 
-        mel_final = mel_full.detach().cpu().squeeze().numpy().T  # shape (1500, 80)
-
+        mel_final = mel_full.transpose(1, 2).detach().cpu().squeeze().numpy()  # shape (1500, 80)
         np.save(args.output, mel_final)
         print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
 
@@ -185,7 +181,6 @@ def main():
         plt.tight_layout()
         plt.show()
 
-        # Try to invert to waveform if torchaudio is available
         if griffin_lim is not None:
             print("[INFO] Attempting to invert mel spectrogram to audio...")
             mel_tensor = torch.tensor(mel_final.T).unsqueeze(0)
