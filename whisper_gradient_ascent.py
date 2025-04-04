@@ -9,17 +9,20 @@ import wave
 from io import BytesIO
 import time
 
+# Optional Griffin-Lim (for spectrogram inversion)
+try:
+    import torchaudio
+    griffin_lim = torchaudio.transforms.GriffinLim(n_fft=400)
+except ImportError:
+    griffin_lim = None
+
+
 def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1):
     """
     Plays a float32 NumPy array (values in [-1, 1]) as audio.
     """
-    # Step 1: Convert float32 [-1, 1] → int16
     int_data = (float_array * 32768.0).astype('<i2')
-
-    # Step 2: Convert to raw bytes
     pcm_bytes = int_data.tobytes()
-
-    # Step 3: Write to in-memory WAV
     buffer = BytesIO()
     with wave.open(buffer, 'wb') as wf:
         wf.setnchannels(channels)
@@ -27,8 +30,6 @@ def play_float_audio(float_array, sample_rate=16000, sample_width=2, channels=1)
         wf.setframerate(sample_rate)
         wf.writeframes(pcm_bytes)
     buffer.seek(0)
-
-    # Step 4: Play
     pygame.mixer.init(frequency=sample_rate)
     sound = pygame.mixer.Sound(file=buffer)
     sound.play()
@@ -51,7 +52,8 @@ def parse_args():
     parser.add_argument("--optimize_seconds", type=float, default=1.0, help="Number of seconds to optimize at the start of the waveform")
     parser.add_argument("--loss_type", type=str, default="max", choices=["mean", "max", "quantile"], help="Loss type for activation (mean, max, quantile)")
     parser.add_argument("--quantile", type=float, default=0.95, help="Quantile to use if loss_type=quantile (e.g., 0.9)")
-    parser.add_argument("--output", type=str, default="optimized_waveform.npy", help="Output .npy file for generated waveform")
+    parser.add_argument("--output", type=str, default="optimized_output.npy", help="Output .npy file for generated waveform or mel")
+    parser.add_argument("--optimize_space", type=str, default="waveform", choices=["waveform", "spectrogram"], help="Whether to optimize waveform or mel-spectrogram directly")
 
     return parser.parse_args()
 
@@ -66,9 +68,8 @@ def blur(signal, sigma):
 # -------------------------
 def main():
     args = parse_args()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Using device: {device}")
+    print(f"[INFO] Using device: {device} | Optimization space: {args.optimize_space}")
 
     # Load Whisper model
     model = whisper.load_model(args.model_size).to(device).eval()
@@ -81,81 +82,114 @@ def main():
     mlp_module = model.encoder.blocks[args.block_index].mlp
     mlp_module.register_forward_hook(hook_fn)
 
-    # Determine optimized segment length
     sample_rate = 16000
-    total_samples = 30 * sample_rate  # Whisper expects 30s (480000 samples)
+    total_samples = 30 * sample_rate
     opt_len = int(args.optimize_seconds * sample_rate)
     pad_len = total_samples - opt_len
 
-    # Start from random noise waveform for the optimized region
-    #x_opt = torch.randn(1, opt_len, requires_grad=True, device=device)
-    # initialize wit low-amplitude noise
-    x_opt = torch.randn(1, opt_len, device=device) * 0.01
-    x_opt.requires_grad_()  # Makes it a leaf and requires gradient
+    if args.optimize_space == "waveform":
+        x_opt = torch.randn(1, opt_len, device=device) * 0.01
+        x_opt.requires_grad_()
+        optimizer = torch.optim.Adam([x_opt], lr=args.lr)
 
-    optimizer = torch.optim.Adam([x_opt], lr=args.lr)
+        for step in range(args.steps):
+            optimizer.zero_grad()
+            x_full = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
+            mel = whisper.log_mel_spectrogram(x_full).to(device)
+            _ = model.encoder(mel)
+            neuron_act = activations["mlp"][0, :, args.neuron_index]
 
-    for step in range(args.steps):
-        optimizer.zero_grad()
+            # Choose loss
+            if args.loss_type == "mean":
+                loss = neuron_act.mean()
+            elif args.loss_type == "max":
+                loss = neuron_act.max()
+            elif args.loss_type == "quantile":
+                loss = torch.quantile(neuron_act, args.quantile)
 
-        # Concatenate optimized segment + silence
-        x_full = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
+            loss -= args.l2_decay * (x_opt ** 2).mean()
+            (-loss).backward()
+            optimizer.step()
 
-        # Forward pass
-        mel = whisper.log_mel_spectrogram(x_full).to(device)
-        _ = model.encoder(mel)
-        neuron_act = activations["mlp"][0, :, args.neuron_index]
+            if args.blur_sigma > 0:
+                x_opt.data = blur(x_opt.data, args.blur_sigma)
 
-        # Choose loss based on type
-        if args.loss_type == "mean":
-            loss = neuron_act.mean()
-        elif args.loss_type == "max":
-            loss = neuron_act.max()
-        elif args.loss_type == "quantile":
-            loss = torch.quantile(neuron_act, args.quantile)
+            if step % 20 == 0:
+                print(f"Step {step:4d} | Activation = {loss.item():.4f}")
+
+        result = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1).detach().cpu().squeeze().numpy()
+        np.save(args.output, result)
+        print(f"[INFO] Saved optimized waveform to {args.output}")
+
+        plt.figure(figsize=(12, 3))
+        plt.plot(result)
+        plt.title(f"Maximized Neuron {args.neuron_index} (Block {args.block_index})")
+        plt.xlabel("Sample Index")
+        plt.tight_layout()
+        plt.show()
+
+        play_float_audio(result, sample_rate=sample_rate)
+
+        with wave.open("output.wav", "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes((result * 32767).astype(np.int16).tobytes())
+        print("[INFO] Saved waveform to output.wav")
+
+    elif args.optimize_space == "spectrogram":
+        # Whisper spectrograms are (1, 80, n_frames)
+        n_frames = int(args.optimize_seconds * 50)  # 50 frames per second
+        mel_opt = torch.randn(1, 80, n_frames, device=device) * 0.01
+        mel_opt.requires_grad_()
+
+        optimizer = torch.optim.Adam([mel_opt], lr=args.lr)
+
+        for step in range(args.steps):
+            optimizer.zero_grad()
+            _ = model.encoder(mel_opt)
+            neuron_act = activations["mlp"][0, :, args.neuron_index]
+
+            # Choose loss
+            if args.loss_type == "mean":
+                loss = neuron_act.mean()
+            elif args.loss_type == "max":
+                loss = neuron_act.max()
+            elif args.loss_type == "quantile":
+                loss = torch.quantile(neuron_act, args.quantile)
+
+            loss -= args.l2_decay * (mel_opt ** 2).mean()
+            (-loss).backward()
+            optimizer.step()
+
+            if step % 20 == 0:
+                print(f"Step {step:4d} | Activation = {loss.item():.4f}")
+
+        mel_final = mel_opt.detach().cpu().squeeze().numpy()
+        np.save(args.output, mel_final)
+        print(f"[INFO] Saved optimized mel spectrogram to {args.output}")
+
+        plt.figure(figsize=(10, 4))
+        plt.imshow(mel_final, aspect='auto', origin='lower')
+        plt.title(f"Mel Spectrogram – Neuron {args.neuron_index}")
+        plt.colorbar(label="Amplitude")
+        plt.tight_layout()
+        plt.show()
+
+        # Try to invert to waveform if torchaudio is available
+        if griffin_lim is not None:
+            print("[INFO] Attempting to invert mel spectrogram to audio...")
+            mel_tensor = torch.tensor(mel_final).unsqueeze(0)
+            inv_waveform = griffin_lim(mel_tensor).squeeze().numpy()
+            play_float_audio(inv_waveform)
+            with wave.open("output_from_mel.wav", "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                wf.writeframes((inv_waveform * 32767).astype(np.int16).tobytes())
+            print("[INFO] Saved inverted waveform to output_from_mel.wav")
         else:
-            raise ValueError("Invalid loss_type")
-
-        # L2 regularization
-        loss -= args.l2_decay * (x_opt ** 2).mean()
-
-        (-loss).backward()
-        optimizer.step()
-
-        if args.blur_sigma > 0:
-            x_opt.data = blur(x_opt.data, args.blur_sigma)
-
-        if step % 20 == 0:
-            print(f"Step {step:4d} | Activation = {loss.item():.4f}")
-
-    # Reconstruct the full waveform: optimized segment + silence
-    result = torch.cat([x_opt, torch.zeros(1, pad_len, device=device)], dim=1)
-    result = result.detach().cpu().squeeze().numpy()
-
-    np.save(args.output, result)
-    print(f"[INFO] Saved optimized waveform to {args.output}")
-
-    # Optional plot
-    plt.figure(figsize=(12, 3))
-    plt.plot(result)
-    plt.title(f"Maximized Neuron {args.neuron_index} (Block {args.block_index})")
-    plt.xlabel("Sample Index")
-    plt.tight_layout()
-    plt.show()
-
-    # Play the audio
-    play_float_audio(result, sample_rate=sample_rate)
-
-    # save waveform to wav file
-
-    with wave.open("output.wav", "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(result.tobytes())
-
-    print("[INFO] Saved waveform to output.wav")
-    
+            print("[WARN] torchaudio not found. Skipping waveform inversion.")
 
 if __name__ == "__main__":
     main()
