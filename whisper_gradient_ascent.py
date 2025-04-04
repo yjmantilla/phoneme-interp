@@ -169,10 +169,7 @@ def main():
             # Then concatenate with the silent portion
             processed_noise = torch.nn.functional.softplus(mel_opt_noise)
             mel_input = torch.cat([processed_noise, mel_opt_silence], dim=2)
-            
-            # Transpose to (batch, time, channels) as expected by Whisper
-            mel_input = mel_input.transpose(1, 2)
-            
+
             _ = model.encoder(mel_input)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
