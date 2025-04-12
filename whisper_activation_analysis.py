@@ -1,5 +1,6 @@
 # use arena environment
-# python -u whisper_activation_analysis.py --output_dir output --figures False >  activation_analysis.log
+# python -u whisper_activation_analysis.py --output_dir output  >  activation_analysis.log
+# python -u whisper_activation_analysis.py --output_dir output  --figures >  activation_analysis_with_figures.log
 
 import numpy as np
 from collections import defaultdict
@@ -232,19 +233,22 @@ def main():
     )
 
     parser.add_argument(
-        "--figures", 
-        type=bool, 
-        default=False, 
-        help="Whether to generate figures (default: False)"
+        "--figures",
+        action="store_true",
+        dest="figures",
+        default=False,
+        help="Generate figures for phoneme activations (default: False)"
     )
-
 
     # example usage
     # python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
 
     output_dir = args.output_dir
+    do_figures = args.figures
 
+    print(type(do_figures), do_figures)
+    
     block_folders = glob.glob(f"{output_dir}/*")
     
     def get_index_from_path(path):
@@ -329,7 +333,8 @@ def main():
             df_phoneme_vs_shuffled = pd.read_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise = pd.read_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
 
-        if args.figures:
+        if do_figures:
+            print(f"Generating figures for block {block_index}")
             # Create output folder if it doesn't exist
             os.makedirs(f"{mlp_path}/figures", exist_ok=True)
 
@@ -364,7 +369,7 @@ def main():
             metrics = ['t_vals', 'p_vals', 'd_vals']
 
             for metric in metrics:
-                os.path.makedirs(f"{mlp_path}/figures/{metric}", exist_ok=True)
+                os.makedirs(f"{mlp_path}/figures/{metric}", exist_ok=True)
 
             combinations = list(itertools.product(neuron_ids, metrics, experiments))
 
