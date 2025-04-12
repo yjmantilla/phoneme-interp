@@ -248,7 +248,7 @@ def main():
     do_figures = args.figures
 
     print(type(do_figures), do_figures)
-    
+
     block_folders = glob.glob(f"{output_dir}/*")
     
     def get_index_from_path(path):
@@ -347,11 +347,18 @@ def main():
                 neuron_df = df[df['neuron'] == neuron_idx].copy()
 
                 # ignore phonemes with nan none values
-                neuron_df = neuron_df.dropna(subset=[metric])
-                neuron_df = neuron_df[neuron_df[metric] != None]
-                neuron_df = neuron_df[neuron_df[metric] != np.inf]
-                neuron_df = neuron_df[neuron_df[metric] != -np.inf]
+                nas = neuron_df[metric].isna()
+                nones = neuron_df[metric] == None
+                infs = neuron_df[metric] == np.inf
+                neg_infs = neuron_df[metric] == -np.inf
+                dropped_df = neuron_df[(nas | nones | infs | neg_infs)]
+                neuron_df = neuron_df[~(nas | nones | infs | neg_infs)]
                 print(f"Processing neuron {neuron_idx}, metric {metric}")
+
+                print('Dropped:')
+                for idx, row in dropped_df.iterrows():
+                    print(f"{row['phoneme']} {row['phoneme_control']} {row[metric]}")
+
                 neg_log = metric == 'p_vals'
                 plot_sorted_phoneme_metric(
                     neuron_df,
