@@ -266,9 +266,20 @@ def main():
 
         if not os.path.isfile(f"{mlp_path}/phoneme_vs_shuffled.pkl") or not os.path.isfile(f"{mlp_path}/phoneme_vs_noise.pkl"):
 
-            # ignore phonemes
-            #IGNORE =['eng','eng@noise','eng@shuffled']
-            #df = df[~df['phoneme'].isin(IGNORE)]
+            min_samples = 10
+
+            valid_phonemes = df['phoneme'].value_counts()
+            valid_phonemes = valid_phonemes[valid_phonemes >= min_samples].index.tolist()
+            invalid_phonemes = df['phoneme'].value_counts()
+            invalid_phonemes = invalid_phonemes[invalid_phonemes < min_samples].index.tolist()
+            df['phoneme'].value_counts().to_csv(f"{mlp_path}/phoneme_counts.csv")
+
+            df = df[df['phoneme'].isin(valid_phonemes)]
+
+            print(f"Valid phonemes: {valid_phonemes}")
+            print(f"Invalid phonemes: {invalid_phonemes}")
+
+            # save value counts to file
             #df[df['phoneme'].isin(['eng'])].copy().iloc[0]['activations_model.encoder.blocks[2].mlp_list']
 
             # low size dataframe
