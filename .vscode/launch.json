@@ -18,7 +18,7 @@
             "request": "launch",
             "program": "whisper_activations.py",
             "console": "integratedTerminal",
-            "args": ["--output_dir", "output", "--block_index", "2"]
+            "args": ["--output_dir", "output", "--figures", "False"]
         },
         {
             "name": "whisper ascent",
