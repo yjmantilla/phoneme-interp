@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument("--model_size", type=str, default="tiny", help="Whisper model size (tiny, base, small, etc.)")
     parser.add_argument("--block_index", type=int, default=2, help="Encoder block index to target")
     parser.add_argument("--neuron_index", type=int, default=1, help="Neuron index within the MLP layer")
-    parser.add_argument("--steps", type=int, default=2000, help="Number of gradient ascent steps")
+    parser.add_argument("--steps", type=int, default=200, help="Number of gradient ascent steps")
     parser.add_argument("--lr", type=float, default=0.5, help="Learning rate")
     parser.add_argument("--l2_decay", type=float, default=0, help="L2 regularization strength")
     parser.add_argument("--blur_sigma", type=float, default=0, help="Gaussian blur sigma for regularization (0 = off)")
@@ -76,7 +76,7 @@ def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device} | Optimization space: {args.optimize_space}")
-
+    torch.autograd.set_detect_anomaly(True)
     model = whisper.load_model(args.model_size).to(device).eval()
 
     activations = {}
@@ -114,19 +114,20 @@ def main():
             mel_input = mel_opt_noise
 
             # Sanity check for gradient flow
-            print(f"[DEBUG] requires_grad: {mel_input.requires_grad}, grad_fn: {mel_input.grad_fn is not None}")
+            #print(f"[DEBUG] requires_grad: {mel_input.requires_grad}, grad_fn: {mel_input.grad_fn is not None}")
 
             _ = model.encoder(mel_input)
             neuron_act = activations["mlp"][0, :, args.neuron_index]
 
             if args.loss_type == "mean":
-                loss = neuron_act.mean()
+                loss = torch.mean(neuron_act.clone())
             elif args.loss_type == "max":
-                loss = neuron_act.max()
+                loss = torch.max(neuron_act.clone())
             elif args.loss_type == "quantile":
-                loss = torch.quantile(neuron_act, args.quantile)
+                loss = torch.quantile(neuron_act.clone(), args.quantile)
 
-            loss -= args.l2_decay * (mel_input ** 2).mean()
+            l2_reg = args.l2_decay * (mel_input ** 2).mean()
+            loss = loss - l2_reg
             (-loss).backward()
             optimizer.step()
 
