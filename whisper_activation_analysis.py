@@ -1,6 +1,7 @@
 # use arena environment
-# python -u whisper_activation_analysis.py --output_dir output  >  activation_analysis.log
-# python -u whisper_activation_analysis.py --output_dir output  --figures >  activation_analysis_with_figures.log
+# python -u whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1s
+# python -u whisper_activation_analysis.py --output_dir output --figures > activation_analysis.log 2>&1
+
 
 import numpy as np
 from collections import defaultdict
@@ -100,7 +101,7 @@ def get_phoneme_vs_phoneme_per_neuron_matrix(df, stat_key, neuron_idx):
     output_dict['matrix_t'] = matrix_t
     output_dict['matrix_p'] = matrix_p
     output_dict['matrix_d'] = matrix_d
-    print(neuron_idx)
+    print(neuron_idx, flush=True)
     return output_dict
 
 
@@ -110,7 +111,7 @@ def get_phoneme_vs_phoneme_all_neurons(df, stat_key,njobs=1):
 
     if njobs == 1:
         for neuron_idx in range(num_neurons):
-            print(f"Processing neuron {neuron_idx}")
+            print(f"Processing neuron {neuron_idx}", flush=True)
             phoneme_vs_phoneme_matrix[neuron_idx] = get_phoneme_vs_phoneme_per_neuron_matrix(df, stat_key, neuron_idx)
     else:
         phoneme_vs_phoneme_matrix_ = joblib.Parallel(n_jobs=-1)(
@@ -247,7 +248,7 @@ def main():
     output_dir = args.output_dir
     do_figures = args.figures
 
-    print(type(do_figures), do_figures)
+    print(type(do_figures), do_figures, flush=True)
 
     block_folders = glob.glob(f"{output_dir}/*")
     
@@ -258,7 +259,7 @@ def main():
     blocks= [get_index_from_path(x) for x in block_folders]
 
     for block_index in blocks:
-        print(f"################# Processing block {block_index} ######################")
+        print(f"################# Processing block {block_index} ######################", flush=True)
 
         mlp_path = f"{output_dir}/model.encoder.blocks[{block_index}].mlp"
         df = pd.read_pickle(f"{mlp_path}/phoneme_activations.pkl")
@@ -276,8 +277,8 @@ def main():
 
             df = df[df['phoneme'].isin(valid_phonemes)]
 
-            print(f"Valid phonemes: {valid_phonemes}")
-            print(f"Invalid phonemes: {invalid_phonemes}")
+            print(f"Valid phonemes: {valid_phonemes}", flush=True)
+            print(f"Invalid phonemes: {invalid_phonemes}", flush=True)
 
             # save value counts to file
             #df[df['phoneme'].isin(['eng'])].copy().iloc[0]['activations_model.encoder.blocks[2].mlp_list']
@@ -315,7 +316,7 @@ def main():
             df_phoneme_vs_shuffled = pd.DataFrame(columns=['phoneme','phoneme_control','t_vals','p_vals','d_vals','neuron'])
             df_phoneme_vs_noise = pd.DataFrame(columns=['phoneme','phoneme_control','t_vals','p_vals','d_vals','neuron'])
             for phoneme_real, phoneme_shuffled, phoneme_noise in zip(real_phonemes, shuffled_phonemes, noise_phonemes):
-                print(f"Processing {phoneme_real} vs {phoneme_shuffled} and {phoneme_real} vs {phoneme_noise}")
+                print(f"Processing {phoneme_real} vs {phoneme_shuffled} and {phoneme_real} vs {phoneme_noise}", flush=True)
                 real_vs_shuffled = do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_real, phoneme_shuffled, agg=np.mean, activations_key_frames_x_neurons=activations_key_frames_x_neurons)
                 real_vs_noise = do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_real, phoneme_noise, agg=np.mean, activations_key_frames_x_neurons=activations_key_frames_x_neurons)
                 df_phoneme_vs_shuffled = pd.concat([df_phoneme_vs_shuffled, pd.DataFrame({
@@ -340,12 +341,12 @@ def main():
             df_phoneme_vs_shuffled.to_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise.to_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
         else:
-            print(f"Loading existing phoneme vs shuffled and noise dataframes for block {block_index}")
+            print(f"Loading existing phoneme vs shuffled and noise dataframes for block {block_index}", flush=True)
             df_phoneme_vs_shuffled = pd.read_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise = pd.read_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
 
         if do_figures:
-            print(f"Generating figures for block {block_index}")
+            print(f"Generating figures for block {block_index}", flush=True)
             # Create output folder if it doesn't exist
             os.makedirs(f"{mlp_path}/figures", exist_ok=True)
 
@@ -364,11 +365,11 @@ def main():
                 neg_infs = neuron_df[metric] == -np.inf
                 dropped_df = neuron_df[(nas | nones | infs | neg_infs)]
                 neuron_df = neuron_df[~(nas | nones | infs | neg_infs)]
-                print(f"Processing neuron {neuron_idx}, metric {metric}")
+                print(f"Processing neuron {neuron_idx}, metric {metric}", flush=True)
 
-                print('Dropped:')
+                print('Dropped:', flush=True)
                 for idx, row in dropped_df.iterrows():
-                    print(f"{row['phoneme']} {row['phoneme_control']} {row[metric]}")
+                    print(f"{row['phoneme']} {row['phoneme_control']} {row[metric]}", flush=True)
 
                 neg_log = metric == 'p_vals'
                 plot_sorted_phoneme_metric(
