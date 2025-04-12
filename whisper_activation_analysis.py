@@ -1,5 +1,5 @@
 # use arena environment
-# python -u whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1s
+# python -u whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1
 # python -u whisper_activation_analysis.py --output_dir output --figures > activation_analysis.log 2>&1
 
 
