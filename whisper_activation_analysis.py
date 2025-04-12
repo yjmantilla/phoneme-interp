@@ -377,7 +377,7 @@ def main():
                     metric=metric,
                     kind="bar",
                     title=f"Sorted Phoneme {metric} (Neuron {neuron_idx})",
-                    save_path=f"{mlp_path}/figures/{metric}/block-{block_index}_exp-{experiment}_neuron-{neuron_idx}_metric-{metric}.png",
+                    save_path=f"{mlp_path}/figures/{metric}/block-{block_index}_metric-{metric}_neuron-{neuron_idx}_exp-{experiment}.png",
                     plot=False,
                     neg_log=neg_log,
                 )
