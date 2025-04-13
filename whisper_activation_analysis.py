@@ -19,6 +19,32 @@ import argparse
 import itertools
 import glob
 
+
+def compare_and_format(args):
+    phoneme_real, phoneme_control, control_type, df, agg, activations_key_frames_x_neurons, njobs = args
+    print(f"Comparing {phoneme_real} vs {phoneme_control}", flush=True)
+    result = extract_phoneme_vs_control(df, phoneme_real, phoneme_control, agg=agg, activations_key_frames_x_neurons=activations_key_frames_x_neurons,njobs=njobs)
+    result['phoneme'] = phoneme_real
+    result['phoneme_control'] = phoneme_control
+    result['control_type'] = control_type
+    return pd.DataFrame.from_dict(result)
+
+from tqdm.contrib.concurrent import process_map
+
+def build_control_comparisons(df, real_phonemes, shuffled_phonemes, noise_phonemes, agg=np.mean, activations_key_frames_x_neurons=None, outer_jobs=1,inner_jobs=1):
+    tasks = (
+        [(r, s, 'shuffled', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, s in zip(real_phonemes, shuffled_phonemes)] +
+        [(r, n, 'noise', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, n in zip(real_phonemes, noise_phonemes)]
+    )
+
+    if outer_jobs == 1:
+        all_dfs = [compare_and_format(task) for task in tasks]
+    else:
+        all_dfs = process_map(compare_and_format, tasks, max_workers=outer_jobs, desc="Comparing phonemes")
+
+    final_df = pd.concat(all_dfs, ignore_index=True)
+    return final_df
+
 def get_neuron_vs_phoneme_matrix(df,stat_key):
     df_ = df.copy()
     # Convert the list-of-arrays column into a matrix
@@ -126,7 +152,67 @@ def cohens_d(x, y):
     """Calculate Cohen's d between two arrays."""
     return (np.mean(x) - np.mean(y)) / np.sqrt((np.std(x)**2 + np.std(y)**2) / 2 + 1e-6)
 
-def do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_a, phoneme_b, agg=np.mean, activations_key_frames_x_neurons='activations_model.encoder.blocks[2].mlp_list'):
+def compute_stats_for_neuron(i, mat_a, mat_b):
+    a_col = mat_a[:, i]
+    b_col = mat_b[:, i]
+
+    # Statistical tests
+    t, p = ttest_rel(a_col, b_col, alternative="greater")
+    d = cohens_d(a_col, b_col)
+
+    # Sample-level sign comparison
+    sign_a = np.sign(a_col)
+    sign_b = np.sign(b_col)
+
+    tp = np.sum((sign_a == 1) & (sign_b == 1))
+    tn = np.sum((sign_a == -1) & (sign_b == -1))
+    fp = np.sum((sign_a == -1) & (sign_b == 1))
+    fn = np.sum((sign_a == 1) & (sign_b == -1))
+    zero_mismatch = np.sum((sign_a == 0) != (sign_b == 0))
+
+    total = len(sign_a)
+    match = np.sum(sign_a == sign_b)
+    mismatch = np.sum(sign_a != sign_b)
+
+    return {
+        'neuron': i,
+        't_val': t,
+        'p_val': p,
+        'd_val': d,
+        'sign_a': np.sign(np.mean(a_col)),
+        'sign_b': np.sign(np.mean(b_col)),
+        'median_a': np.median(a_col),
+        'median_b': np.median(b_col),
+        'mean_a': np.mean(a_col),
+        'mean_b': np.mean(b_col),
+        'std_a': np.std(a_col),
+        'std_b': np.std(b_col),
+        'max_a': np.max(a_col),
+        'max_b': np.max(b_col),
+        'min_a': np.min(a_col),
+        'min_b': np.min(b_col),
+        'q25_a': np.quantile(a_col, 0.25),
+        'q25_b': np.quantile(b_col, 0.25),
+        'q75_a': np.quantile(a_col, 0.75),
+        'q75_b': np.quantile(b_col, 0.75),
+        'q90_a': np.quantile(a_col, 0.90),
+        'q90_b': np.quantile(b_col, 0.90),
+        'q10_a': np.quantile(a_col, 0.10),
+        'q10_b': np.quantile(b_col, 0.10),
+
+        # Sign mismatch stats
+        'sign_match_count': match,
+        'sign_mismatch_count': mismatch,
+        'sign_match_rate': match / total,
+        'sign_mismatch_rate': mismatch / total,
+        'sign_a+b+': tp,
+        'sign_a-b-': tn,
+        'sign_a-b+': fp,
+        'sign_a+b-': fn,
+        'sign_zero_mismatch': zero_mismatch
+    }
+
+def extract_phoneme_vs_control(df, phoneme_a, phoneme_b, agg=np.mean, activations_key_frames_x_neurons='activations_model.encoder.blocks[2].mlp_list',njobs=1):
 
     #df['phoneme']
     phonemes_a = [phoneme_a]
@@ -155,29 +241,13 @@ def do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_a, phoneme_b, agg=np.mea
     mat_a = np.stack(df_a['neuron_vec'].values)
     mat_b = np.stack(df_b['neuron_vec'].values)
 
-    t_vals = []
-    p_vals = []
-    d_vals = []
 
     n_neurons = mat_a.shape[1]
-
-    for i in range(n_neurons):
-        a_col = mat_a[:, i]
-        b_col = mat_b[:, i]
-
-        # Perform t-test
-        t, p = ttest_rel(a_col, b_col, alternative="greater")  # Paired t-test
-        d = cohens_d(a_col, b_col)
-        t_vals.append(t)
-        p_vals.append(p)
-        d_vals.append(d)
-
-    return {
-        't_vals': t_vals,
-        'p_vals': p_vals,
-        'd_vals': d_vals,
-        'neuron': np.arange(n_neurons),
-    }
+    results = Parallel(n_jobs=njobs, verbose=0)(
+        delayed(compute_stats_for_neuron)(i, mat_a, mat_b) for i in range(n_neurons)
+    )
+    df_neuron_stats = pd.DataFrame(results)
+    return df_neuron_stats
 
 
 def plot_sorted_phoneme_metric(
@@ -251,7 +321,7 @@ def main():
     print(type(do_figures), do_figures, flush=True)
 
     block_folders = glob.glob(f"{output_dir}/*")
-    
+    block_folders = [x for x in block_folders if os.path.isdir(x)]
     def get_index_from_path(path):
         # Extract the block index from the path
         return int(path.split('blocks[')[1].split(']')[0])
@@ -313,37 +383,28 @@ def main():
             assert [x+'@shuffled' == y for x,y in zip(real_phonemes,shuffled_phonemes)]
             assert [x+'@noise' for x in real_phonemes] == noise_phonemes
 
-            df_phoneme_vs_shuffled = pd.DataFrame(columns=['phoneme','phoneme_control','t_vals','p_vals','d_vals','neuron'])
-            df_phoneme_vs_noise = pd.DataFrame(columns=['phoneme','phoneme_control','t_vals','p_vals','d_vals','neuron'])
-            for phoneme_real, phoneme_shuffled, phoneme_noise in zip(real_phonemes, shuffled_phonemes, noise_phonemes):
-                print(f"Processing {phoneme_real} vs {phoneme_shuffled} and {phoneme_real} vs {phoneme_noise}", flush=True)
-                real_vs_shuffled = do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_real, phoneme_shuffled, agg=np.mean, activations_key_frames_x_neurons=activations_key_frames_x_neurons)
-                real_vs_noise = do_pairwise_ttest_of_phoneme_vs_control(df, phoneme_real, phoneme_noise, agg=np.mean, activations_key_frames_x_neurons=activations_key_frames_x_neurons)
-                df_phoneme_vs_shuffled = pd.concat([df_phoneme_vs_shuffled, pd.DataFrame({
-                    'phoneme': phoneme_real,
-                    'phoneme_control': phoneme_shuffled,
-                    't_vals': real_vs_shuffled['t_vals'],
-                    'p_vals': real_vs_shuffled['p_vals'],
-                    'd_vals': real_vs_shuffled['d_vals'],
-                    'neuron': real_vs_shuffled['neuron'],
-                })], ignore_index=True)
+            df_phoneme_comparisons = build_control_comparisons(
+                df=df,
+                real_phonemes=real_phonemes,
+                shuffled_phonemes=shuffled_phonemes,
+                noise_phonemes=noise_phonemes,
+                agg=np.mean,
+                activations_key_frames_x_neurons=activations_key_frames_x_neurons,
+                outer_jobs=1,
+                inner_jobs=8,
+            )
 
-                df_phoneme_vs_noise = pd.concat([df_phoneme_vs_noise, pd.DataFrame({
-                    'phoneme': phoneme_real,
-                    'phoneme_control': phoneme_noise,
-                    't_vals': real_vs_noise['t_vals'],
-                    'p_vals': real_vs_noise['p_vals'],
-                    'd_vals': real_vs_noise['d_vals'],
-                    'neuron': real_vs_noise['neuron'],
-                })], ignore_index=True)
-
-            # Save the dataframes to files
+            # Save
+            df_phoneme_comparisons.to_pickle(f"{mlp_path}/phoneme_vs_controls.pkl")
+            df_phoneme_vs_shuffled = df_phoneme_comparisons.query("control_type == 'shuffled'")
+            df_phoneme_vs_noise = df_phoneme_comparisons.query("control_type == 'noise'")
             df_phoneme_vs_shuffled.to_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise.to_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
         else:
             print(f"Loading existing phoneme vs shuffled and noise dataframes for block {block_index}", flush=True)
             df_phoneme_vs_shuffled = pd.read_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise = pd.read_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
+            df_phoneme_comparisons = pd.read_pickle(f"{mlp_path}/phoneme_vs_controls.pkl")
 
         if do_figures:
             print(f"Generating figures for block {block_index}", flush=True)
@@ -376,7 +437,7 @@ def main():
                     neuron_df,
                     metric=metric,
                     kind="bar",
-                    title=f"Sorted Phoneme {metric} (Neuron {neuron_idx})",
+                    title=f"Sorted Phoneme {metric.replace('_',' ')} between {experiment.replace('2',' vs ')} (Neuron {neuron_idx})",
                     save_path=f"{mlp_path}/figures/{metric}/block-{block_index}_metric-{metric}_neuron-{neuron_idx}_exp-{experiment}.png",
                     plot=False,
                     neg_log=neg_log,
@@ -385,7 +446,7 @@ def main():
             # Generate all combinations
             experiments = ['phoneme2shuffled','phoneme2noise']
             neuron_ids = df_phoneme_vs_shuffled['neuron'].unique()
-            metrics = ['t_vals', 'p_vals', 'd_vals']
+            metrics = ['d_vals'] # 't_vals', 'p_vals'
 
             for metric in metrics:
                 os.makedirs(f"{mlp_path}/figures/{metric}", exist_ok=True)
