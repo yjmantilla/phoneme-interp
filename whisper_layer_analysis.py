@@ -155,9 +155,11 @@ def main():
             this_b_n_dict['num_negative'] = num_negative
             this_b_n_dict['num_great_cohen'] = num_great_cohen
             this_b_n_dict['num_worst_cohen'] = num_worst_cohen
+            this_b_n_dict['auc'] = df_this_b_n_sorted['d_val'].sum()#/(len(df_this_b_n_sorted['phoneme'].unique()) if len(df_this_b_n_sorted['phoneme'].unique()) > 0 else 1)
             block_neuron_dicts.append(this_b_n_dict)
 
         df_block_neuron = pd.DataFrame(block_neuron_dicts)
+        df_block_neuron['type'] = df_name
         df_block_neuron.to_pickle(f"{output_dir}/all_blocks_{df_name}_phoneme_activations.pkl")
         df_types[df_name] = df_block_neuron.copy()
 
@@ -177,22 +179,149 @@ def main():
             j = int(name)
             sorted_top = group.sort_values('num_great_cohen', ascending=False)
             sorted_bottom = group.sort_values('bottom_phonemes_count', ascending=False)
+
             ax = axes[i][j]
-            ax.plot(sorted_top['num_worst_cohen'].to_list(), label='# Phonemes with d < -0.8')
-            ax.plot(sorted_top['num_great_cohen'].to_list(), label='# Phonemes with d > 0.8')
-            ax.hlines(np.mean(
-                sorted_top['num_worst_cohen']),xmin=0, xmax=len(sorted_top['num_worst_cohen'])-1
-                , color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
-            ax.hlines(np.mean(
-                sorted_top['num_great_cohen']),xmin=0, xmax=len(sorted_top['num_great_cohen'])-1
-                , color='red', linestyle='--', label='Mean # Phonemes with d > 0.8')
+
+            # Original line plot
+            top_vals = sorted_top['num_great_cohen'].to_numpy()
+            bottom_vals = sorted_top['num_worst_cohen'].to_numpy()
+
+            ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
+            ax.plot(top_vals, label='# Phonemes with d > 0.8')
+
+            # Mean lines
+            ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
+            ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean # Phonemes with d > 0.8')
+
+            # Slope (derivative)
+            # top_deriv = np.diff(top_vals)
+            # top_deriv = np.mean(top_deriv)  # mean slope
+            # ax2 = ax.twinx()
+
+            # ax2.hlines(top_deriv, xmin=0, xmax=len(top_vals)-1, color='blue', linestyle='--', label='Mean Slope')
+            # ax2.set_ylabel("Δ top phoneme count")
+
+            # # Optional: detect inflection points (drop > threshold)
+            # threshold = -2  # tweak this
+            # inflections = np.where(top_deriv < threshold)[0]
+            # ax.scatter(inflections, top_vals[inflections], color='purple', label='Inflection Points', zorder=5)
 
             ax.set_xlabel('Neurons')
             ax.set_ylabel(f'Number of Phonemes per Neuron\n{experiment_map[dtype]}')
             ax.set_title(f'Block {name}')
-            ax.legend()
-    plt.tight_layout()
-    plt.show()
+
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=4)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.savefig(f"{output_dir}/phoneme_dvals.png")
     plt.close('all')
+
+    # plot number of top phonemes per neuron per block
+    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10))#,sharex=True, sharey=True)
+    experiment_map = {'phoneme2shuffled':'d value of Phoneme vs Shuffled', 'phoneme2noise':'d value of Phoneme vs AM Noise'}
+    for i,dtype in enumerate(df_types.keys()):
+        groups=df_types[dtype].groupby('block_index')
+
+        for name, group in groups:
+            j = int(name)
+            sorted_top = group.sort_values('num_great_cohen', ascending=False)
+            sorted_bottom = group.sort_values('bottom_phonemes_count', ascending=False)
+
+            ax = axes[i][j]
+
+            # Original line plot
+            top_vals = sorted_top['num_great_cohen'].to_numpy()
+            bottom_vals = sorted_top['num_worst_cohen'].to_numpy()
+
+            top_vals = top_vals / np.maximum(bottom_vals, np.ones_like(top_vals))
+            top_vals=np.sort(top_vals, kind='mergesort')
+            top_vals=top_vals[::-1]
+
+
+            #ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
+            #ax.plot(top_vals, label='# Phonemes with d > 0.8')
+
+            ax.plot(top_vals, label='# Phonemes with d > 0.8/# Phonemes with d < -0.8')
+
+            # Mean lines
+            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
+            ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean')
+
+            # Slope (derivative)
+            # top_deriv = np.diff(top_vals)
+            # top_deriv = np.mean(top_deriv)  # mean slope
+            # ax2 = ax.twinx()
+
+            # ax2.hlines(top_deriv, xmin=0, xmax=len(top_vals)-1, color='blue', linestyle='--', label='Mean Slope')
+            # ax2.set_ylabel("Δ top phoneme count")
+
+            # # Optional: detect inflection points (drop > threshold)
+            # threshold = -2  # tweak this
+            # inflections = np.where(top_deriv < threshold)[0]
+            # ax.scatter(inflections, top_vals[inflections], color='purple', label='Inflection Points', zorder=5)
+
+            ax.set_xlabel('Neurons')
+            ax.set_ylabel(f'Number of Phonemes per Neuron\n{experiment_map[dtype]}')
+            ax.set_title(f'Block {name}')
+
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=4)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+    fig.savefig(f"{output_dir}/phoneme_ratio.png")
+
+    # plot number of top phonemes per neuron per block
+    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharey=True)#,sharex=True, sharey=True)
+    experiment_map = {'phoneme2shuffled':'d value of Phoneme vs Shuffled', 'phoneme2noise':'d value of Phoneme vs AM Noise'}
+    for i,dtype in enumerate(df_types.keys()):
+        groups=df_types[dtype].groupby('block_index')
+
+        for name, group in groups:
+            j = int(name)
+            sorted_top = group.sort_values('auc', ascending=False)
+
+            ax = axes[i][j]
+
+            #ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
+            #ax.plot(top_vals, label='# Phonemes with d > 0.8')
+            top_vals = sorted_top['auc'].to_numpy()
+            ax.plot(top_vals, label='AUC of d value across phonemes for each neuron')
+
+            # Mean lines
+            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
+            ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean')
+
+            # Slope (derivative)
+            # top_deriv = np.diff(top_vals)
+            # top_deriv = np.mean(top_deriv)  # mean slope
+            # ax2 = ax.twinx()
+
+            # ax2.hlines(top_deriv, xmin=0, xmax=len(top_vals)-1, color='blue', linestyle='--', label='Mean Slope')
+            # ax2.set_ylabel("Δ top phoneme count")
+
+            # # Optional: detect inflection points (drop > threshold)
+            # threshold = -2  # tweak this
+            # inflections = np.where(top_deriv < threshold)[0]
+            # ax.scatter(inflections, top_vals[inflections], color='purple', label='Inflection Points', zorder=5)
+
+            ax.set_xlabel('Neurons')
+            ax.set_ylabel(f'AUC across phonemes per Neuron\n{experiment_map[dtype]}')
+            ax.set_title(f'Block {name}')
+
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', ncol=4)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.show()
+    fig.savefig(f"{output_dir}/phoneme_auc.png")
+
+
+    for df_ in df_types.keys():
+        df_types[df_].to_pickle(f"{output_dir}/all_blocks_{df_}_phoneme.pkl")
+    df_types[df_].iloc[0]
+    # plt.show()
+    # plt.close('all')
 if __name__ == "__main__":
     main()
