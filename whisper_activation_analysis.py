@@ -152,13 +152,24 @@ def cohens_d(x, y):
     """Calculate Cohen's d between two arrays."""
     return (np.mean(x) - np.mean(y)) / np.sqrt((np.std(x)**2 + np.std(y)**2) / 2 + 1e-6)
 
+def cohens_d_paired(a, b):
+    diffs = np.array(a) - np.array(b)
+    return np.mean(diffs) / np.std(diffs, ddof=1)
+
+def hedges_g_paired(a, b):
+    d = cohens_d_paired(a, b)
+    n = len(a)
+    correction = 1 - (3 / (4 * n - 1))
+    return d * correction
+
 def compute_stats_for_neuron(i, mat_a, mat_b):
     a_col = mat_a[:, i]
     b_col = mat_b[:, i]
 
     # Statistical tests
     t, p = ttest_rel(a_col, b_col, alternative="greater")
-    d = cohens_d(a_col, b_col)
+    d = cohens_d_paired(a_col, b_col)
+    hedges_g = hedges_g_paired(a_col, b_col)
 
     # Sample-level sign comparison
     sign_a = np.sign(a_col)
@@ -179,6 +190,7 @@ def compute_stats_for_neuron(i, mat_a, mat_b):
         't_val': t,
         'p_val': p,
         'd_val': d,
+        'g_val': hedges_g,
         'sign_a': np.sign(np.mean(a_col)),
         'sign_b': np.sign(np.mean(b_col)),
         'median_a': np.median(a_col),

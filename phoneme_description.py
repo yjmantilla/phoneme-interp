@@ -120,3 +120,11 @@ plt.savefig("control_conditions_example.pdf", dpi=300, bbox_inches='tight')
 plt.savefig("control_conditions_example.png", dpi=300, bbox_inches='tight')
 plt.show()
 
+
+# included
+
+included = ['h#', 'h#@shuffled', 'h#@noise', 'ix', 'ix@shuffled', 'ix@noise', 'n', 'n@shuffled', 'n@noise', 'iy@noise', 'iy@shuffled', 'iy', 's@noise', 's', 's@shuffled', 'tcl@noise', 'tcl', 'tcl@shuffled', 'r@noise', 'r@shuffled', 'r', 'l@shuffled', 'l', 'l@noise', 'kcl@noise', 'kcl', 'kcl@shuffled', 'ih', 'ih@noise', 'ih@shuffled', 'dcl', 'dcl@shuffled', 'dcl@noise', 'k@shuffled', 'k', 'k@noise', 't@noise', 't', 't@shuffled', 'ae@shuffled', 'ae@noise', 'ae', 'q', 'q@noise', 'q@shuffled', 'm@noise', 'm@shuffled', 'm', 'z@noise', 'z', 'z@shuffled', 'w@noise', 'w@shuffled', 'w', 'ao@shuffled', 'ao@noise', 'ao', 'd', 'd@shuffled', 'd@noise', 'ax', 'ax@noise', 'ax@shuffled', 'aa@shuffled', 'aa@noise', 'aa', 'eh@shuffled', 'eh@noise', 'eh', 'dh@shuffled', 'dh@noise', 'dh', 'ay@shuffled', 'ay@noise', 'ay', 'ow@shuffled', 'ow', 'ow@noise', 'ux@noise', 'ux@shuffled', 'ux', 'ey@noise', 'ey', 'ey@shuffled', 'ah@noise', 'f@noise', 'ah', 'f', 'ah@shuffled', 'f@shuffled', 'er', 'er@shuffled', 'er@noise', 'axr@noise', 'axr', 'axr@shuffled', 'sh', 'sh@shuffled', 'sh@noise', 'pcl@noise', 'pcl@shuffled', 'pcl', 'b@shuffled', 'b@noise', 'b', 'p', 'p@noise', 'p@shuffled', 'v@shuffled', 'v@noise', 'v', 'gcl', 'gcl@noise', 'gcl@shuffled', 'dx@shuffled', 'dx', 'dx@noise', 'y@shuffled', 'y@noise', 'y', 'bcl', 'bcl@shuffled', 'bcl@noise', 'g@shuffled', 'g@noise', 'g', 'epi@shuffled', 'epi@noise', 'epi', 'jh', 'jh@noise', 'jh@shuffled', 'hv', 'hv@shuffled', 'hv@noise', 'ng', 'ng@shuffled', 'ng@noise', 'nx@noise', 'nx', 'nx@shuffled', 'el@noise', 'el@shuffled', 'el', 'hh', 'hh@shuffled', 'hh@noise', 'pau@noise', 'pau', 'pau@shuffled', 'oy@shuffled', 'oy@noise', 'oy', 'ch', 'ch@noise', 'ch@shuffled', 'ax-h@noise', 'aw@noise', 'ax-h@shuffled', 'aw', 'ax-h', 'aw@shuffled', 'th', 'th@shuffled', 'th@noise', 'en', 'en@noise', 'en@shuffled', 'uh', 'uh@shuffled', 'uh@noise', 'uw@shuffled', 'uw', 'uw@noise']
+excluded = ['em', 'zh@shuffled', 'zh', 'em@noise', 'zh@noise', 'em@shuffled', 'eng@noise', 'eng', 'eng@shuffled']
+
+
+

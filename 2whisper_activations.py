@@ -1,6 +1,6 @@
 # example usage
 # use arena environment
-# python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2 >  activations_block_2.log
+# python -u 2whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2 >  activations_block_2.log
 
 def main():
     import numpy as np
@@ -104,13 +104,12 @@ def main():
         return amplitude_envelope / np.max(amplitude_envelope)
 
     def generate_am_noise(seg, seed=42):
-        np.random.seed(seed)
-        noise = np.random.randn(len(seg))
+        rng = np.random.default_rng(seed)
+        noise = rng.standard_normal(len(seg))
         envelope = smooth_envelope(seg)
-        return (noise * envelope* np.max(np.abs(seg))).astype(np.float32)
+        return (noise * envelope * np.max(np.abs(seg))).astype(np.float32)
 
-    # another option
-
+    # Another option
     def phase_scramble(signal, seed=42):
         np.random.seed(seed)
         fft = np.fft.fft(signal)
@@ -133,8 +132,9 @@ def main():
             original_segment = np.asarray(row['segment'], dtype=np.float32)
             # Add noise
             # segment = original_segment + generate_am_noise(original_segment)
-            original_noise = generate_am_noise(original_segment)
-            original_shuffling = np.random.permutation(original_segment)
+            original_noise = generate_am_noise(original_segment, seed=i+block_index)
+            rng = np.random.default_rng(seed=i + block_index)
+            original_shuffling = rng.permutation(original_segment)
 
             segment = pad_or_truncate(original_segment)
             shuffling = pad_or_truncate(original_shuffling)
