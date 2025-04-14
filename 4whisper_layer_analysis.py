@@ -1,6 +1,6 @@
 # use arena environment
-# python -u whisper_layer_analysis.py --output_dir output > layer_analysis.log 2>&1
-# python -u whisper_layer_analysis.py --output_dir output --figures > layer_analysis.log 2>&1
+# python -u 4whisper_layer_analysis.py --output_dir output > layer_analysis.log 2>&1
+# python -u 4whisper_layer_analysis.py --output_dir output --figures > layer_analysis.log 2>&1
 
 
 import numpy as np
@@ -38,12 +38,20 @@ def main():
         help="Generate figures for phoneme activations (default: False)"
     )
 
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default="d_val",
+        help="Metric to use for phoneme activations (default: d_val)"
+    )
+
     # example usage
     # python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
 
     output_dir = args.output_dir
     do_figures = args.figures
+    DO_METRIC = args.metric
 
     print(type(do_figures), do_figures, flush=True)
 
@@ -59,6 +67,7 @@ def main():
     block_data = {}
     block_data['phoneme2shuffled'] = []
     block_data['phoneme2noise'] = []
+    block_data['noise2shuffled'] = []
     for block_index in blocks:
         print(f"################# Processing block {block_index} ######################", flush=True)
 
@@ -66,29 +75,36 @@ def main():
         df = pd.read_pickle(f"{mlp_path}/phoneme_activations.pkl")
         phoneme_vs_shuffled_file = f"{mlp_path}/phoneme_vs_shuffled.pkl"
         phoneme_vs_noise_file = f"{mlp_path}/phoneme_vs_noise.pkl"
+        noise_vs_shuffled_file = f"{mlp_path}/noise_vs_shuffled.pkl"
         assert os.path.exists(phoneme_vs_shuffled_file), f"File {phoneme_vs_shuffled_file} does not exist"
         assert os.path.exists(phoneme_vs_noise_file), f"File {phoneme_vs_noise_file} does not exist"
-        print(f"Loading existing phoneme vs shuffled and noise dataframes for block {block_index}", flush=True)
+        assert os.path.exists(noise_vs_shuffled_file), f"File {noise_vs_shuffled_file} does not exist"
+        print(f"Loading existing dataframes for block {block_index}", flush=True)
         df_phoneme_vs_shuffled = pd.read_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
         df_phoneme_vs_noise = pd.read_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
+        df_noise_vs_shuffled = pd.read_pickle(f"{mlp_path}/noise_vs_shuffled.pkl")
         print(f"Loaded phoneme vs shuffled and noise dataframes for block {block_index}", flush=True)
 
         df_phoneme_vs_shuffled['block_index'] = block_index
         df_phoneme_vs_noise['block_index'] = block_index
+        df_noise_vs_shuffled['block_index'] = block_index
         block_data['phoneme2shuffled'].append(df_phoneme_vs_shuffled)
         block_data['phoneme2noise'].append(df_phoneme_vs_noise)
+        block_data['noise2shuffled'].append(df_noise_vs_shuffled)
 
     df_phoneme2shuffled = pd.concat(block_data['phoneme2shuffled'])
     df_phoneme2noise = pd.concat(block_data['phoneme2noise'])
+    df_noise2shuffled = pd.concat(block_data['noise2shuffled'])
 
     df_phoneme2noise.columns
 
     # save phoneme vs shuffled and noise dataframes
     df_phoneme2shuffled.to_pickle(f"{output_dir}/all_blocks_phoneme_vs_shuffled.pkl")
     df_phoneme2noise.to_pickle(f"{output_dir}/all_blocks_phoneme_vs_noise.pkl")
+    df_noise2shuffled.to_pickle(f"{output_dir}/all_blocks_noise_vs_shuffled.pkl")
 
     df_types = {}
-    for df_this, df_name in zip([df_phoneme2shuffled, df_phoneme2noise], ['phoneme2shuffled', 'phoneme2noise']):
+    for df_this, df_name in zip([df_phoneme2shuffled, df_phoneme2noise, df_noise2shuffled], ['phoneme2shuffled', 'phoneme2noise', 'noise2shuffled']):
 
         block_neuron_pairs = []
 
@@ -107,39 +123,39 @@ def main():
             print(f"Block {b} Neuron {n} has {len(df_this_b_n)} phoneme activations", flush=True)
 
             # get dvals sorted
-            df_this_b_n_sorted=df_this_b_n.sort_values('d_val', ascending=False, inplace=False)
-            #df_this_b_n_sorted['d_val']
+            df_this_b_n_sorted=df_this_b_n.sort_values(DO_METRIC, ascending=False, inplace=False)
+            #df_this_b_n_sorted[DO_METRIC]
 
             # Get the top positive phonemes before it reaches 60% of the max d_val
 
-            if any(df_this_b_n_sorted['d_val'] > 0):
-                max_d_val = df_this_b_n_sorted['d_val'].max()
+            if any(df_this_b_n_sorted[DO_METRIC] > 0):
+                max_d_val = df_this_b_n_sorted[DO_METRIC].max()
                 threshold = max_d_val * 0.7 #1-np.exp(-1) # 1-e^-1 = 0.6321
-                df_this_b_n_sorted_top = df_this_b_n_sorted[df_this_b_n_sorted['d_val'] >= threshold]
-                num_positive = df_this_b_n_sorted['d_val'][df_this_b_n_sorted['d_val'] > 0].count()
+                df_this_b_n_sorted_top = df_this_b_n_sorted[df_this_b_n_sorted[DO_METRIC] >= threshold]
+                num_positive = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] > 0].count()
             else:
-                df_this_b_n_sorted_top = df_this_b_n_sorted[df_this_b_n_sorted['d_val']  > 0] # this should be empty
+                df_this_b_n_sorted_top = df_this_b_n_sorted[df_this_b_n_sorted[DO_METRIC]  > 0] # this should be empty
                 num_positive = 0
 
-            num_great_cohen = df_this_b_n_sorted['d_val'][df_this_b_n_sorted['d_val'] > 0.8].count()
+            num_great_cohen = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] > 0.8].count()
 
             top_phonemes = df_this_b_n_sorted_top['phoneme'].unique()
-            top_auc = df_this_b_n_sorted_top['d_val'].sum()/(len(df_this_b_n_sorted_top['phoneme'].unique()) if len(df_this_b_n_sorted_top['phoneme'].unique()) > 0 else 1)
+            top_auc = df_this_b_n_sorted_top[DO_METRIC].sum()/(len(df_this_b_n_sorted_top['phoneme'].unique()) if len(df_this_b_n_sorted_top['phoneme'].unique()) > 0 else 1)
             # Get top negative phonemes before it reaches 60% of the min d_val (most control-confusing phonemes)
             top_df = df_this_b_n_sorted_top.copy()
-            if any(df_this_b_n_sorted['d_val'] < 0):
-                min_d_val = df_this_b_n_sorted['d_val'].min()
+            if any(df_this_b_n_sorted[DO_METRIC] < 0):
+                min_d_val = df_this_b_n_sorted[DO_METRIC].min()
                 threshold = min_d_val * 0.7 #1-np.exp(-1) # 1-e^-1 = 0.6321
-                df_this_b_n_sorted_bottom = df_this_b_n_sorted[df_this_b_n_sorted['d_val'] <= threshold]
-                num_negative = df_this_b_n_sorted['d_val'][df_this_b_n_sorted['d_val'] < 0].count()
+                df_this_b_n_sorted_bottom = df_this_b_n_sorted[df_this_b_n_sorted[DO_METRIC] <= threshold]
+                num_negative = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] < 0].count()
             else:
-                df_this_b_n_sorted_bottom = df_this_b_n_sorted[df_this_b_n_sorted['d_val'] < 0] # this should be empty
+                df_this_b_n_sorted_bottom = df_this_b_n_sorted[df_this_b_n_sorted[DO_METRIC] < 0] # this should be empty
                 num_negative
             
-            num_worst_cohen = df_this_b_n_sorted['d_val'][df_this_b_n_sorted['d_val'] < -0.8].count()
+            num_worst_cohen = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] < -0.8].count()
 
             bottom_phonemes = df_this_b_n_sorted_bottom['phoneme'].unique()
-            bottom_auc = df_this_b_n_sorted_bottom['d_val'].sum()/(len(df_this_b_n_sorted_bottom['phoneme'].unique()) if len(df_this_b_n_sorted_bottom['phoneme'].unique()) > 0 else 1)
+            bottom_auc = df_this_b_n_sorted_bottom[DO_METRIC].sum()/(len(df_this_b_n_sorted_bottom['phoneme'].unique()) if len(df_this_b_n_sorted_bottom['phoneme'].unique()) > 0 else 1)
             bottom_df = df_this_b_n_sorted_bottom.copy()
 
             this_b_n_dict = {}
@@ -155,23 +171,28 @@ def main():
             this_b_n_dict['num_negative'] = num_negative
             this_b_n_dict['num_great_cohen'] = num_great_cohen
             this_b_n_dict['num_worst_cohen'] = num_worst_cohen
-            this_b_n_dict['auc'] = df_this_b_n_sorted['d_val'].sum()#/(len(df_this_b_n_sorted['phoneme'].unique()) if len(df_this_b_n_sorted['phoneme'].unique()) > 0 else 1)
+            this_b_n_dict['auc'] = df_this_b_n_sorted[DO_METRIC].sum()#/(len(df_this_b_n_sorted['phoneme'].unique()) if len(df_this_b_n_sorted['phoneme'].unique()) > 0 else 1)
             block_neuron_dicts.append(this_b_n_dict)
 
         df_block_neuron = pd.DataFrame(block_neuron_dicts)
         df_block_neuron['type'] = df_name
-        df_block_neuron.to_pickle(f"{output_dir}/all_blocks_{df_name}_phoneme_activations.pkl")
+        df_block_neuron.to_pickle(f"{output_dir}/all_blocks_{df_name}_{DO_METRIC}_phoneme_activations.pkl")
         df_types[df_name] = df_block_neuron.copy()
 
     # number of top phonemes per neuron per block
     df_types['phoneme2shuffled']['top_phonemes_count'] = df_types['phoneme2shuffled']['top_phonemes'].apply(lambda x: len(x))
     df_types['phoneme2noise']['top_phonemes_count'] = df_types['phoneme2noise']['top_phonemes'].apply(lambda x: len(x))
+    df_types['noise2shuffled']['top_phonemes_count'] = df_types['noise2shuffled']['top_phonemes'].apply(lambda x: len(x))
+
     df_types['phoneme2shuffled']['bottom_phonemes_count'] = df_types['phoneme2shuffled']['bottom_phonemes'].apply(lambda x: len(x))
     df_types['phoneme2noise']['bottom_phonemes_count'] = df_types['phoneme2noise']['bottom_phonemes'].apply(lambda x: len(x))
+    df_types['noise2shuffled']['bottom_phonemes_count'] = df_types['noise2shuffled']['bottom_phonemes'].apply(lambda x: len(x))
 
+    groups = df_types['phoneme2shuffled'].groupby('block_index') # preview of the groups
     # plot number of top phonemes per neuron per block
     fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10))#,sharex=True, sharey=True)
-    experiment_map = {'phoneme2shuffled':'d value of Phoneme vs Shuffled', 'phoneme2noise':'d value of Phoneme vs AM Noise'}
+    experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
+
     for i,dtype in enumerate(df_types.keys()):
         groups=df_types[dtype].groupby('block_index')
 
@@ -186,12 +207,12 @@ def main():
             top_vals = sorted_top['num_great_cohen'].to_numpy()
             bottom_vals = sorted_top['num_worst_cohen'].to_numpy()
 
-            ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
-            ax.plot(top_vals, label='# Phonemes with d > 0.8')
+            ax.plot(bottom_vals, label=f'# Phonemes with {DO_METRIC} < -0.8')
+            ax.plot(top_vals, label=f'# Phonemes with {DO_METRIC} > 0.8')
 
             # Mean lines
-            ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
-            ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean # Phonemes with d > 0.8')
+            ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label=f'Mean # Phonemes with {DO_METRIC} < -0.8')
+            ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label=f'Mean # Phonemes with {DO_METRIC} > 0.8')
 
             # Slope (derivative)
             # top_deriv = np.diff(top_vals)
@@ -214,12 +235,13 @@ def main():
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(f"{output_dir}/phoneme_dvals.png")
+    fig.savefig(f"{output_dir}/phoneme_{DO_METRIC}.png")
     plt.close('all')
 
     # plot number of top phonemes per neuron per block
     fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10))#,sharex=True, sharey=True)
-    experiment_map = {'phoneme2shuffled':'d value of Phoneme vs Shuffled', 'phoneme2noise':'d value of Phoneme vs AM Noise'}
+    experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
+
     for i,dtype in enumerate(df_types.keys()):
         groups=df_types[dtype].groupby('block_index')
 
@@ -239,13 +261,13 @@ def main():
             top_vals=top_vals[::-1]
 
 
-            #ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
-            #ax.plot(top_vals, label='# Phonemes with d > 0.8')
+            #ax.plot(bottom_vals, label=f'# Phonemes with {DO_METRIC} < -0.8')
+            #ax.plot(top_vals, label=f'# Phonemes with {DO_METRIC} > 0.8')
 
-            ax.plot(top_vals, label='# Phonemes with d > 0.8/# Phonemes with d < -0.8')
+            ax.plot(top_vals, label=f'# Phonemes with {DO_METRIC} > 0.8/# Phonemes with {DO_METRIC} < -0.8')
 
             # Mean lines
-            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
+            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label=f'Mean # Phonemes with {DO_METRIC} < -0.8')
             ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean')
 
             # Slope (derivative)
@@ -270,11 +292,11 @@ def main():
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
-    fig.savefig(f"{output_dir}/phoneme_ratio.png")
+    fig.savefig(f"{output_dir}/phoneme_{DO_METRIC}_ratio.png")
 
     # plot number of top phonemes per neuron per block
     fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharey=True)#,sharex=True, sharey=True)
-    experiment_map = {'phoneme2shuffled':'d value of Phoneme vs Shuffled', 'phoneme2noise':'d value of Phoneme vs AM Noise'}
+    experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
     for i,dtype in enumerate(df_types.keys()):
         groups=df_types[dtype].groupby('block_index')
 
@@ -284,13 +306,13 @@ def main():
 
             ax = axes[i][j]
 
-            #ax.plot(bottom_vals, label='# Phonemes with d < -0.8')
-            #ax.plot(top_vals, label='# Phonemes with d > 0.8')
+            #ax.plot(bottom_vals, label=f'# Phonemes with {DO_METRIC} < -0.8')
+            #ax.plot(top_vals, label=f'# Phonemes with {DO_METRIC} > 0.8')
             top_vals = sorted_top['auc'].to_numpy()
-            ax.plot(top_vals, label='AUC of d value across phonemes for each neuron')
+            ax.plot(top_vals, label=f'AUC of {DO_METRIC} across phonemes for each neuron')
 
             # Mean lines
-            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label='Mean # Phonemes with d < -0.8')
+            #ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label=f'Mean # Phonemes with {DO_METRIC} < -0.8')
             ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label='Mean')
 
             # Slope (derivative)
@@ -315,11 +337,11 @@ def main():
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
-    fig.savefig(f"{output_dir}/phoneme_auc.png")
+    fig.savefig(f"{output_dir}/phoneme_auc_{DO_METRIC}.png")
 
 
     for df_ in df_types.keys():
-        df_types[df_].to_pickle(f"{output_dir}/all_blocks_{df_}_phoneme.pkl")
+        df_types[df_].to_pickle(f"{output_dir}/all_blocks_{df_}_{DO_METRIC}_phoneme.pkl")
     df_types[df_].iloc[0]
     # plt.show()
     # plt.close('all')

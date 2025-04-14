@@ -1,6 +1,6 @@
 # use arena environment
-# python -u whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1
-# python -u whisper_activation_analysis.py --output_dir output --figures > activation_analysis.log 2>&1
+# python -u 3whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1
+# python -u 3whisper_activation_analysis.py --output_dir output --figures > activation_analysis_figures.log 2>&1
 
 
 import numpy as np
@@ -33,8 +33,9 @@ from tqdm.contrib.concurrent import process_map
 
 def build_control_comparisons(df, real_phonemes, shuffled_phonemes, noise_phonemes, agg=np.mean, activations_key_frames_x_neurons=None, outer_jobs=1,inner_jobs=1):
     tasks = (
-        [(r, s, 'shuffled', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, s in zip(real_phonemes, shuffled_phonemes)] +
-        [(r, n, 'noise', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, n in zip(real_phonemes, noise_phonemes)]
+        [(r, s, 'phoneme2shuffled', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, s in zip(real_phonemes, shuffled_phonemes)] +
+        [(r, n, 'phoneme2noise', df, agg, activations_key_frames_x_neurons,inner_jobs) for r, n in zip(real_phonemes, noise_phonemes)]+
+        [(n, s, 'noise2shuffled', df, agg, activations_key_frames_x_neurons,inner_jobs) for n, s in zip(noise_phonemes, shuffled_phonemes)]
     )
 
     if outer_jobs == 1:
@@ -408,14 +409,17 @@ def main():
 
             # Save
             df_phoneme_comparisons.to_pickle(f"{mlp_path}/phoneme_vs_controls.pkl")
-            df_phoneme_vs_shuffled = df_phoneme_comparisons.query("control_type == 'shuffled'")
-            df_phoneme_vs_noise = df_phoneme_comparisons.query("control_type == 'noise'")
+            df_phoneme_vs_shuffled = df_phoneme_comparisons.query("control_type == 'phoneme2shuffled'")
+            df_phoneme_vs_noise = df_phoneme_comparisons.query("control_type == 'phoneme2noise'")
+            df_baseline = df_phoneme_comparisons.query("control_type == 'noise2shuffled'")
             df_phoneme_vs_shuffled.to_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise.to_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
+            df_baseline.to_pickle(f"{mlp_path}/noise_vs_shuffled.pkl")
         else:
             print(f"Loading existing phoneme vs shuffled and noise dataframes for block {block_index}", flush=True)
             df_phoneme_vs_shuffled = pd.read_pickle(f"{mlp_path}/phoneme_vs_shuffled.pkl")
             df_phoneme_vs_noise = pd.read_pickle(f"{mlp_path}/phoneme_vs_noise.pkl")
+            df_baseline = pd.read_pickle(f"{mlp_path}/noise_vs_shuffled.pkl")
             df_phoneme_comparisons = pd.read_pickle(f"{mlp_path}/phoneme_vs_controls.pkl")
 
         if do_figures:
@@ -424,11 +428,15 @@ def main():
             os.makedirs(f"{mlp_path}/figures", exist_ok=True)
 
             # Define the task for a single neuron/metric pair
-            def plot_neuron_metric(neuron_idx, metric,df_phoneme_vs_shuffled, df_phoneme_vs_noise,block_index,experiment='phoneme2shuffled'):
+            def plot_neuron_metric(neuron_idx, metric,df_phoneme_vs_shuffled, df_phoneme_vs_noise,df_baseline,block_index,experiment='phoneme2shuffled'):
                 if experiment == 'phoneme2shuffled':
                     df = df_phoneme_vs_shuffled.copy()
-                else:
+                if experiment == 'phoneme2noise':
                     df = df_phoneme_vs_noise.copy()
+                if experiment == 'noise2shuffled':
+                    df = df_baseline.copy()
+
+
                 neuron_df = df[df['neuron'] == neuron_idx].copy()
 
                 # ignore phonemes with nan none values
@@ -456,9 +464,9 @@ def main():
                 )
 
             # Generate all combinations
-            experiments = ['phoneme2shuffled','phoneme2noise']
+            experiments = ['phoneme2shuffled','phoneme2noise', 'noise2shuffled']
             neuron_ids = df_phoneme_vs_shuffled['neuron'].unique()
-            metrics = ['d_vals'] # 't_vals', 'p_vals'
+            metrics = ['d_val','g_val'] # 't_vals', 'p_vals'
 
             for metric in metrics:
                 os.makedirs(f"{mlp_path}/figures/{metric}", exist_ok=True)

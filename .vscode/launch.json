@@ -8,7 +8,7 @@
             "name": "whisper activations",
             "type": "debugpy",
             "request": "launch",
-            "program": "whisper_activations.py",
+            "program": "2whisper_activations.py",
             "console": "integratedTerminal",
             "args": ["--phoneme_file", "phoneme_segments.pkl", "--output_dir", "output", "--block_index", "2"]
         },
@@ -16,7 +16,7 @@
             "name": "whisper activations analysis",
             "type": "debugpy",
             "request": "launch",
-            "program": "whisper_activation_analysis.py",
+            "program": "3whisper_activation_analysis.py",
             "console": "integratedTerminal",
             "args": ["--output_dir", "output"]
         },
@@ -24,7 +24,7 @@
             "name": "whisper layer analysis",
             "type": "debugpy",
             "request": "launch",
-            "program": "whisper_layer_analysis.py",
+            "program": "4whisper_layer_analysis.py",
             "console": "integratedTerminal",
             "args": ["--output_dir", "output"]
         },
