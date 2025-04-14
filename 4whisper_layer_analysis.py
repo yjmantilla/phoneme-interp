@@ -1,7 +1,7 @@
 # use arena environment
 # python -u 4whisper_layer_analysis.py --output_dir output > layer_analysis.log 2>&1
 # python -u 4whisper_layer_analysis.py --output_dir output --figures > layer_analysis.log 2>&1
-
+# python -u 4whisper_layer_analysis.py --output_dir output --metric g_val > layer_analysis.log 2>&1
 
 import numpy as np
 from collections import defaultdict
@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import argparse
 import itertools
 import glob
+from pathlib import Path
 
 def main():
 
@@ -45,6 +46,13 @@ def main():
         help="Metric to use for phoneme activations (default: d_val)"
     )
 
+    parser.add_argument(
+        "--variant",
+        type=str,
+        default="tiny",
+        help="Model variant to use (default: tiny)"
+    )
+
     # example usage
     # python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
@@ -52,11 +60,13 @@ def main():
     output_dir = args.output_dir
     do_figures = args.figures
     DO_METRIC = args.metric
+    VARIANT = args.variant
 
     print(type(do_figures), do_figures, flush=True)
 
-    block_folders = glob.glob(f"{output_dir}/*")
+    block_folders = glob.glob(f"{output_dir}/{VARIANT}/*")
     block_folders = [x for x in block_folders if os.path.isdir(x)]
+    block_folders = [Path(x).as_posix() for x in block_folders]
     def get_index_from_path(path):
         # Extract the block index from the path
         return int(path.split('blocks[')[1].split(']')[0])
@@ -71,7 +81,7 @@ def main():
     for block_index in blocks:
         print(f"################# Processing block {block_index} ######################", flush=True)
 
-        mlp_path = f"{output_dir}/model.encoder.blocks[{block_index}].mlp"
+        mlp_path = f"{output_dir}/{VARIANT}/model.encoder.blocks[{block_index}].mlp"
         df = pd.read_pickle(f"{mlp_path}/phoneme_activations.pkl")
         phoneme_vs_shuffled_file = f"{mlp_path}/phoneme_vs_shuffled.pkl"
         phoneme_vs_noise_file = f"{mlp_path}/phoneme_vs_noise.pkl"
@@ -99,9 +109,9 @@ def main():
     df_phoneme2noise.columns
 
     # save phoneme vs shuffled and noise dataframes
-    df_phoneme2shuffled.to_pickle(f"{output_dir}/all_blocks_phoneme_vs_shuffled.pkl")
-    df_phoneme2noise.to_pickle(f"{output_dir}/all_blocks_phoneme_vs_noise.pkl")
-    df_noise2shuffled.to_pickle(f"{output_dir}/all_blocks_noise_vs_shuffled.pkl")
+    df_phoneme2shuffled.to_pickle(f"{output_dir}/{VARIANT}/all_blocks_phoneme_vs_shuffled.pkl")
+    df_phoneme2noise.to_pickle(f"{output_dir}/{VARIANT}/all_blocks_phoneme_vs_noise.pkl")
+    df_noise2shuffled.to_pickle(f"{output_dir}/{VARIANT}/all_blocks_noise_vs_shuffled.pkl")
 
     df_types = {}
     for df_this, df_name in zip([df_phoneme2shuffled, df_phoneme2noise, df_noise2shuffled], ['phoneme2shuffled', 'phoneme2noise', 'noise2shuffled']):
@@ -176,7 +186,7 @@ def main():
 
         df_block_neuron = pd.DataFrame(block_neuron_dicts)
         df_block_neuron['type'] = df_name
-        df_block_neuron.to_pickle(f"{output_dir}/all_blocks_{df_name}_{DO_METRIC}_phoneme_activations.pkl")
+        df_block_neuron.to_pickle(f"{output_dir}/{VARIANT}/all_blocks_{df_name}_{DO_METRIC}_phoneme_activations.pkl")
         df_types[df_name] = df_block_neuron.copy()
 
     # number of top phonemes per neuron per block
@@ -190,7 +200,7 @@ def main():
 
     groups = df_types['phoneme2shuffled'].groupby('block_index') # preview of the groups
     # plot number of top phonemes per neuron per block
-    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10))#,sharex=True, sharey=True)
+    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
     experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
 
     for i,dtype in enumerate(df_types.keys()):
@@ -235,11 +245,12 @@ def main():
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    fig.savefig(f"{output_dir}/phoneme_{DO_METRIC}.png")
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}.png")
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}.pdf")
     plt.close('all')
 
     # plot number of top phonemes per neuron per block
-    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10))#,sharex=True, sharey=True)
+    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
     experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
 
     for i,dtype in enumerate(df_types.keys()):
@@ -291,11 +302,12 @@ def main():
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.show()
-    fig.savefig(f"{output_dir}/phoneme_{DO_METRIC}_ratio.png")
+    #plt.show()
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}_ratio.png")
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}_ratio.pdf")
 
     # plot number of top phonemes per neuron per block
-    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharey=True)#,sharex=True, sharey=True)
+    fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
     experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
     for i,dtype in enumerate(df_types.keys()):
         groups=df_types[dtype].groupby('block_index')
@@ -336,12 +348,14 @@ def main():
     handles, labels = ax.get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', ncol=4)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    plt.show()
-    fig.savefig(f"{output_dir}/phoneme_auc_{DO_METRIC}.png")
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_auc_{DO_METRIC}.png")
+    fig.savefig(f"{output_dir}/{VARIANT}/phoneme_auc_{DO_METRIC}.pdf")
+
+    plt.close('all')
 
 
     for df_ in df_types.keys():
-        df_types[df_].to_pickle(f"{output_dir}/all_blocks_{df_}_{DO_METRIC}_phoneme.pkl")
+        df_types[df_].to_pickle(f"{output_dir}/{VARIANT}/all_blocks_{df_}_{DO_METRIC}_phoneme.pkl")
     df_types[df_].iloc[0]
     # plt.show()
     # plt.close('all')

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # Load the phoneme count CSV
-df = pd.read_csv("output\model.encoder.blocks[3].mlp\phoneme_counts.csv")
+df = pd.read_csv(r"output\tiny\model.encoder.blocks[3].mlp\phoneme_counts.csv")
 
 # Display the top rows to understand its structure
 df.head()
@@ -51,7 +51,7 @@ plt.savefig("phoneme_distribution.png", bbox_inches='tight')
 plt.show()
 
 
-dfpath = r"Y:\code\phoneme-interp\output\model.encoder.blocks[0].mlp\phoneme_activations.pkl"
+dfpath = r"Y:\code\phoneme-interp\output\tiny\model.encoder.blocks[0].mlp\phoneme_activations.pkl"
 
 df = pd.read_pickle(dfpath)
 
@@ -118,7 +118,9 @@ for i, seg in enumerate(segments):
 plt.tight_layout()
 plt.savefig("control_conditions_example.pdf", dpi=300, bbox_inches='tight')
 plt.savefig("control_conditions_example.png", dpi=300, bbox_inches='tight')
-plt.show()
+#plt.show()
+
+plt.close('all')
 
 
 # included

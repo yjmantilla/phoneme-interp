@@ -1,6 +1,7 @@
 # example usage
 # use arena environment
-# python -u 2whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2 >  activations_block_2.log
+# python -u 2whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --variant tiny --block_index 2 >  tiny_activations_block_2.log
+# python -u 2whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --variant base --block_index 2 >  base_activations_block_2.log
 
 def main():
     import numpy as np
@@ -35,12 +36,18 @@ def main():
         help="Whisper encoder block index to extract MLP activations from (default: 2)"
     )
 
-
+    parser.add_argument(
+        "--variant",
+        type=str,
+        default="tiny",
+        help="Whisper model variant to use (default: tiny)"
+    )
     args = parser.parse_args()
 
     phoneme_file = args.phoneme_file
     output_dir = args.output_dir
     block_index = args.block_index
+    VARIANT = args.variant
 
     with open(phoneme_file, "rb") as f:
         df = pickle.load(f)
@@ -64,7 +71,7 @@ def main():
     print(f"Using device: {device}")
 
     # Load model to the same device
-    model = whisper.load_model("tiny").to(device)  # small, base, large
+    model = whisper.load_model(VARIANT).to(device)  # small, base, large
     # Set model to eval mode
     model.eval()
 
@@ -84,7 +91,7 @@ def main():
 
     # Register hook to desired block's MLP
     mlp_module = model.encoder.blocks[block_index].mlp
-    mlp_string = f'model.encoder.blocks[{block_index}].mlp'
+    mlp_string = f'{VARIANT}/model.encoder.blocks[{block_index}].mlp'
     hook = mlp_module.register_forward_hook(hook_fn)
 
     mlp_path = f"{output_dir}/{mlp_string}/"
@@ -218,6 +225,7 @@ def main():
     print(f"Loading from {tooshort_path}")
     too_short = np.load(tooshort_path, allow_pickle=True)
     # get mean max min std of activations across frame dimension, as we want to get stats at the neuron level
+    n_frames_list = np.load(n_frames_path, allow_pickle=True)
 
     foo_dict = {
         'list': lambda x: x,
@@ -244,20 +252,23 @@ def main():
     df_shuffling['key'] = df_shuffling['phoneme'] + '_' + df_shuffling['utterance'] + '_' + df_shuffling['within_phone_count'].astype(str)
     df = pd.concat([df,df_noise,df_shuffling],ignore_index=True)
 
-    all_activations = seg_activations_list+noi_activations_list+shu_activations_list # same order as concat
-    for key, func in foo_dict.items():
-        print(f"Computing {key} of activations")
-        df[f'activations_{mlp_string}_{key}'] = [func(activations) for activations in all_activations]
-
-    # save all activations to pickle
     all_activations_path = f"{mlp_path}/all_activations.npy"
+
+    all_activations = seg_activations_list+noi_activations_list+shu_activations_list # same order as concat
+
     if not os.path.exists(all_activations_path):
         np.save(all_activations_path, np.array(all_activations, dtype=object), allow_pickle=True)
         print(f"Saved all activations to {all_activations_path}")
-    
-    df.to_pickle(f"{mlp_path}/phoneme_activations.pkl")
-    print(f"Saved phoneme activations to {mlp_path}/phoneme_activations.pkl")
 
+    df_activations_path = f"{mlp_path}/phoneme_activations.pkl"
+
+    if not os.path.exists(df_activations_path):
+        for key, func in foo_dict.items():
+            print(f"Computing {key} of activations")
+            df[f'activations_{mlp_string}_{key}'] = [func(activations) for activations in all_activations]
+
+        df.to_pickle(df_activations_path)
+        print(f"Saved phoneme activations to {df_activations_path}")
 
 if __name__ == "__main__":
     main()

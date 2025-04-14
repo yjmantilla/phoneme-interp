@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import argparse
 import itertools
 import glob
-
+from pathlib import Path
 
 def compare_and_format(args):
     phoneme_real, phoneme_control, control_type, df, agg, activations_key_frames_x_neurons, njobs = args
@@ -317,6 +317,12 @@ def main():
     )
 
     parser.add_argument(
+        "--variant",
+        type=str,
+        default="tiny",
+        help="Model variant (default: tiny)"
+    )
+    parser.add_argument(
         "--figures",
         action="store_true",
         dest="figures",
@@ -324,17 +330,20 @@ def main():
         help="Generate figures for phoneme activations (default: False)"
     )
 
+
     # example usage
     # python -u whisper_activations.py --phoneme_file phoneme_segments.pkl --output_dir output --block_index 2
     args = parser.parse_args()
 
     output_dir = args.output_dir
     do_figures = args.figures
+    VARIANT = args.variant
 
     print(type(do_figures), do_figures, flush=True)
 
-    block_folders = glob.glob(f"{output_dir}/*")
+    block_folders = glob.glob(f"{output_dir}/{VARIANT}/*")
     block_folders = [x for x in block_folders if os.path.isdir(x)]
+    block_folders = [Path(x).as_posix() for x in block_folders]
     def get_index_from_path(path):
         # Extract the block index from the path
         return int(path.split('blocks[')[1].split(']')[0])
@@ -344,7 +353,7 @@ def main():
     for block_index in blocks:
         print(f"################# Processing block {block_index} ######################", flush=True)
 
-        mlp_path = f"{output_dir}/model.encoder.blocks[{block_index}].mlp"
+        mlp_path = f"{output_dir}/{VARIANT}/model.encoder.blocks[{block_index}].mlp"
         df = pd.read_pickle(f"{mlp_path}/phoneme_activations.pkl")
 
 
@@ -475,7 +484,7 @@ def main():
 
             # Run in parallel
             Parallel(n_jobs=8)(
-                delayed(plot_neuron_metric)(neuron_idx, metric, df_phoneme_vs_shuffled, df_phoneme_vs_noise, block_index, experiment=exp)
+                delayed(plot_neuron_metric)(neuron_idx, metric, df_phoneme_vs_shuffled, df_baseline, df_phoneme_vs_noise, block_index, experiment=exp)
                 for neuron_idx, metric,exp in combinations
             )
 
