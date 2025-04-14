@@ -5,10 +5,11 @@ activations.shape
 
 import pandas as pd
 
-df=pd.read_pickle(r'output\model.encoder.blocks[2].mlp\phoneme_activations.pkl')
+df=pd.read_pickle(r'output\tiny\model.encoder.blocks[2].mlp\phoneme_activations.pkl')
 
 df.columns
 
+df.iloc[0]
 
 # go to neuron 1
 

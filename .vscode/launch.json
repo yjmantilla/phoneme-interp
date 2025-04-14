@@ -18,7 +18,7 @@
             "request": "launch",
             "program": "3whisper_activation_analysis.py",
             "console": "integratedTerminal",
-            "args": ["--output_dir", "output"]
+            "args": ["--output_dir", "output", "--variant", "base"]
         },
         {
             "name": "whisper layer analysis",
@@ -26,7 +26,7 @@
             "request": "launch",
             "program": "4whisper_layer_analysis.py",
             "console": "integratedTerminal",
-            "args": ["--output_dir", "output"]
+            "args": ["--output_dir", "output", "--variant", "base", "--figures"]
         },
         {
             "name": "whisper ascent",
