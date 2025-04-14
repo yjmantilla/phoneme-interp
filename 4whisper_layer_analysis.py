@@ -3,6 +3,8 @@
 # python -u 4whisper_layer_analysis.py --output_dir output --figures > layer_analysis.log 2>&1
 # python -u 4whisper_layer_analysis.py --output_dir output --metric g_val > layer_analysis.log 2>&1
 
+
+# python -u 4whisper_layer_analysis.py --output_dir output --variant base --figures > base_layer_analysis.log 2>&1
 import numpy as np
 from collections import defaultdict
 from scipy.stats import ttest_ind
@@ -178,7 +180,7 @@ def main():
                     num_negative = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] < 0].count()
                 else:
                     df_this_b_n_sorted_bottom = df_this_b_n_sorted[df_this_b_n_sorted[DO_METRIC] < 0] # this should be empty
-                    num_negative
+                    num_negative = 0
                 
                 num_worst_cohen = df_this_b_n_sorted[DO_METRIC][df_this_b_n_sorted[DO_METRIC] < -0.8].count()
 
@@ -227,6 +229,8 @@ def main():
     df_types['noise2shuffled']['bottom_phonemes_count'] = df_types['noise2shuffled']['bottom_phonemes'].apply(lambda x: len(x))
 
     if do_figures:
+
+        ####################### 0.8 DO_METRIC and -0.8  DO_METRIC ##########################
         groups = df_types['phoneme2shuffled'].groupby('block_index') # preview of the groups
         # plot number of top phonemes per neuron per block
         fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
@@ -277,6 +281,68 @@ def main():
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}.png")
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}.pdf")
         plt.close('all')
+
+        ##########################################################################
+
+
+        ################## Top Positive Bottom Negative 0.7*max 0.7*min DO_METRIC ##########################
+
+        groups = df_types['phoneme2shuffled'].groupby('block_index') # preview of the groups
+        # plot number of top phonemes per neuron per block
+        fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
+        experiment_map = {'phoneme2shuffled':f'{DO_METRIC} of Phoneme vs Shuffled', 'phoneme2noise':f'{DO_METRIC} of Phoneme vs AM Noise', 'noise2shuffled':f'{DO_METRIC} of AM Noise vs Shuffled'}
+
+        for i,dtype in enumerate(df_types.keys()):
+            groups=df_types[dtype].groupby('block_index')
+
+            for name, group in groups:
+                j = int(name)
+                sorted_top = group.sort_values('top_phonemes_count', ascending=False)
+                sorted_bottom = group.sort_values('bottom_phonemes_count', ascending=False)
+
+                ax = axes[i][j]
+
+                # Original line plot
+                top_vals = sorted_top['top_phonemes_count'].to_numpy()
+                bottom_vals = sorted_top['bottom_phonemes_count'].to_numpy()
+
+                ax.plot(bottom_vals, label=f'# Top Positive Phonemes with 0.7*max {DO_METRIC}')
+                ax.plot(top_vals, label=f'# Bottom Negative Phonemes with 0.7*min {DO_METRIC}')
+
+                # Mean lines
+                ax.hlines(np.mean(bottom_vals), xmin=0, xmax=len(bottom_vals)-1, color='black', linestyle='--', label=f'Mean # Top Positive Phonemes with 0.7*max {DO_METRIC}')
+                ax.hlines(np.mean(top_vals), xmin=0, xmax=len(top_vals)-1, color='red', linestyle='--', label=f'Mean # Bottom Negative Phonemes with 0.7*min {DO_METRIC}')
+
+                # Slope (derivative)
+                # top_deriv = np.diff(top_vals)
+                # top_deriv = np.mean(top_deriv)  # mean slope
+                # ax2 = ax.twinx()
+
+                # ax2.hlines(top_deriv, xmin=0, xmax=len(top_vals)-1, color='blue', linestyle='--', label='Mean Slope')
+                # ax2.set_ylabel("Δ top phoneme count")
+
+                # # Optional: detect inflection points (drop > threshold)
+                # threshold = -2  # tweak this
+                # inflections = np.where(top_deriv < threshold)[0]
+                # ax.scatter(inflections, top_vals[inflections], color='purple', label='Inflection Points', zorder=5)
+
+                ax.set_xlabel('Neurons')
+                ax.set_ylabel(f'Number of Phonemes per Neuron\n{experiment_map[dtype]}')
+                ax.set_title(f'Block {name}')
+
+
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper center', ncol=4)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        fig.savefig(f"{output_dir}/{VARIANT}/phonemeTopBottom_{DO_METRIC}.png")
+        fig.savefig(f"{output_dir}/{VARIANT}/phonemeTopBottom_{DO_METRIC}.pdf")
+        plt.close('all')
+
+        ########################################################################
+
+
+
+        ############################ Ratio of # Phonemes with 0.8 DO_METRIC to # Phonemes with -0.8 DO_METRIC ############################
 
         # plot number of top phonemes per neuron per block
         fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
@@ -334,6 +400,10 @@ def main():
         #plt.show()
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}_ratio.png")
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_{DO_METRIC}_ratio.pdf")
+        plt.close('all')
+
+
+        ######################### AUC of DO_METRIC across phonemes for each neuron #########################
 
         # plot number of top phonemes per neuron per block
         fig,axes = plt.subplots(len(df_types.keys()), len(groups), figsize=(20, 10),sharex=True, sharey=True)#,sharex=True, sharey=True)
@@ -379,8 +449,9 @@ def main():
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_auc_{DO_METRIC}.png")
         fig.savefig(f"{output_dir}/{VARIANT}/phoneme_auc_{DO_METRIC}.pdf")
-
         plt.close('all')
+
+        ############################################################################################
 
 
 if __name__ == "__main__":
