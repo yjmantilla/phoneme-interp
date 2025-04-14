@@ -1,5 +1,5 @@
 # use arena environment
-# python -u 3whisper_activation_analysis.py --output_dir output > activation_analysis.log 2>&1
+# python -u 3whisper_activation_analysis.py --output_dir output --variant base > base_activation_analysis.log 2>&1
 # python -u 3whisper_activation_analysis.py --output_dir output --figures > activation_analysis_figures.log 2>&1
 
 
@@ -384,8 +384,8 @@ def main():
             #df.iloc[0]
 
             #df.iloc[0]['activations_model.encoder.blocks[2].mlp_list'].shape
-            activations_key_frames_x_neurons = f'activations_model.encoder.blocks[{block_index}].mlp_list'
-
+            activations_key_frames_x_neurons = df.columns[['mlp_list' in x for i,x in enumerate(df.columns)].index(True)]
+            #activations_key_frames_x_neurons should already have correct block index
             # real phonemes
             real_phonemes = df['phoneme'].unique()
             real_phonemes = [x for x in real_phonemes if not any([y in x for y in ['noise','shuffled']])]
