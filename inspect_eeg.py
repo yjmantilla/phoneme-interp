@@ -18,3 +18,9 @@ print(f'Number of channels: {n_channels}')
 # Get the channel names
 channel_names = raw.info['ch_names']
 print(f'Channel names: {channel_names}')
+
+
+# save a plot of the psd for the first 10 seconds of data
+import matplotlib.pyplot as plt
+raw.plot_psd(fmax=50, tmin=0, tmax=10)
+plt.savefig('psd_plot.png')
